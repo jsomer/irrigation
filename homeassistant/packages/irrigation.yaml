@@ -1,0 +1,209 @@
+# Home Assistant package — Smart Irrigation Controller
+#
+# Covers both zones (zone 0 and zone 1).
+# All MQTT topics follow: irrigation/zone/<id>/<suffix>
+#
+# To enable: add to configuration.yaml:
+#   homeassistant:
+#     packages:
+#       irrigation: !include packages/irrigation.yaml
+
+mqtt:
+
+  # ── Sensors ──────────────────────────────────────────────────────────────────
+  sensor:
+
+    # Zone 0
+    - name: "Irrigation Zone 0 VWC"
+      unique_id: irrigation_zone0_vwc
+      state_topic: "irrigation/zone/0/telemetry"
+      value_template: "{{ value_json.vwc }}"
+      unit_of_measurement: "%"
+      device_class: moisture
+      state_class: measurement
+
+    - name: "Irrigation Zone 0 State"
+      unique_id: irrigation_zone0_state
+      state_topic: "irrigation/zone/0/telemetry"
+      value_template: "{{ value_json.state }}"
+
+    - name: "Irrigation Zone 0 Fault Reason"
+      unique_id: irrigation_zone0_fault_reason
+      state_topic: "irrigation/zone/0/telemetry"
+      value_template: "{{ value_json.fault_reason | default('none') }}"
+
+    - name: "Irrigation Zone 0 Runtime Today"
+      unique_id: irrigation_zone0_runtime_today
+      state_topic: "irrigation/zone/0/telemetry"
+      value_template: "{{ value_json.runtime_today_s }}"
+      unit_of_measurement: "s"
+      state_class: measurement
+
+    - name: "Irrigation Zone 0 Runtime Hour"
+      unique_id: irrigation_zone0_runtime_hour
+      state_topic: "irrigation/zone/0/telemetry"
+      value_template: "{{ value_json.runtime_hour_s }}"
+      unit_of_measurement: "s"
+      state_class: measurement
+
+    - name: "Irrigation Zone 0 Pulse Count"
+      unique_id: irrigation_zone0_pulse_count
+      state_topic: "irrigation/zone/0/telemetry"
+      value_template: "{{ value_json.pulse_count }}"
+      state_class: total_increasing
+
+    - name: "Irrigation Zone 0 Status"
+      unique_id: irrigation_zone0_status
+      state_topic: "irrigation/zone/0/status"
+
+    # Zone 1
+    - name: "Irrigation Zone 1 VWC"
+      unique_id: irrigation_zone1_vwc
+      state_topic: "irrigation/zone/1/telemetry"
+      value_template: "{{ value_json.vwc }}"
+      unit_of_measurement: "%"
+      device_class: moisture
+      state_class: measurement
+
+    - name: "Irrigation Zone 1 State"
+      unique_id: irrigation_zone1_state
+      state_topic: "irrigation/zone/1/telemetry"
+      value_template: "{{ value_json.state }}"
+
+    - name: "Irrigation Zone 1 Fault Reason"
+      unique_id: irrigation_zone1_fault_reason
+      state_topic: "irrigation/zone/1/telemetry"
+      value_template: "{{ value_json.fault_reason | default('none') }}"
+
+    - name: "Irrigation Zone 1 Runtime Today"
+      unique_id: irrigation_zone1_runtime_today
+      state_topic: "irrigation/zone/1/telemetry"
+      value_template: "{{ value_json.runtime_today_s }}"
+      unit_of_measurement: "s"
+      state_class: measurement
+
+    - name: "Irrigation Zone 1 Runtime Hour"
+      unique_id: irrigation_zone1_runtime_hour
+      state_topic: "irrigation/zone/1/telemetry"
+      value_template: "{{ value_json.runtime_hour_s }}"
+      unit_of_measurement: "s"
+      state_class: measurement
+
+    - name: "Irrigation Zone 1 Pulse Count"
+      unique_id: irrigation_zone1_pulse_count
+      state_topic: "irrigation/zone/1/telemetry"
+      value_template: "{{ value_json.pulse_count }}"
+      state_class: total_increasing
+
+    - name: "Irrigation Zone 1 Status"
+      unique_id: irrigation_zone1_status
+      state_topic: "irrigation/zone/1/status"
+
+  # ── Binary sensors ────────────────────────────────────────────────────────────
+  binary_sensor:
+
+    - name: "Irrigation Zone 0 Valve"
+      unique_id: irrigation_zone0_valve
+      state_topic: "irrigation/zone/0/telemetry"
+      value_template: "{{ value_json.valve_open }}"
+      payload_on: "True"
+      payload_off: "False"
+      device_class: opening
+
+    - name: "Irrigation Zone 0 Online"
+      unique_id: irrigation_zone0_online
+      state_topic: "irrigation/zone/0/status"
+      payload_on: "online"
+      payload_off: "offline"
+      device_class: connectivity
+
+    - name: "Irrigation Zone 1 Valve"
+      unique_id: irrigation_zone1_valve
+      state_topic: "irrigation/zone/1/telemetry"
+      value_template: "{{ value_json.valve_open }}"
+      payload_on: "True"
+      payload_off: "False"
+      device_class: opening
+
+    - name: "Irrigation Zone 1 Online"
+      unique_id: irrigation_zone1_online
+      state_topic: "irrigation/zone/1/status"
+      payload_on: "online"
+      payload_off: "offline"
+      device_class: connectivity
+
+  # ── Buttons ───────────────────────────────────────────────────────────────────
+  button:
+
+    - name: "Irrigation Zone 0 Pulse"
+      unique_id: irrigation_zone0_pulse
+      command_topic: "irrigation/zone/0/command"
+      payload_press: '{"action": "pulse"}'
+
+    - name: "Irrigation Zone 0 Close"
+      unique_id: irrigation_zone0_close
+      command_topic: "irrigation/zone/0/command"
+      payload_press: '{"action": "close"}'
+
+    - name: "Irrigation Zone 0 Clear Fault"
+      unique_id: irrigation_zone0_clear_fault
+      command_topic: "irrigation/zone/0/command"
+      payload_press: '{"action": "clear_fault"}'
+
+    - name: "Irrigation Zone 1 Pulse"
+      unique_id: irrigation_zone1_pulse
+      command_topic: "irrigation/zone/1/command"
+      payload_press: '{"action": "pulse"}'
+
+    - name: "Irrigation Zone 1 Close"
+      unique_id: irrigation_zone1_close
+      command_topic: "irrigation/zone/1/command"
+      payload_press: '{"action": "close"}'
+
+    - name: "Irrigation Zone 1 Clear Fault"
+      unique_id: irrigation_zone1_clear_fault
+      command_topic: "irrigation/zone/1/command"
+      payload_press: '{"action": "clear_fault"}'
+
+# ── Automations ───────────────────────────────────────────────────────────────
+automation:
+
+  # Alert when a zone enters fault state
+  - alias: "Irrigation Zone 0 Fault Alert"
+    id: irrigation_zone0_fault_alert
+    trigger:
+      - platform: state
+        entity_id: sensor.irrigation_zone_0_state
+        to: "fault"
+    action:
+      - service: notify.notify
+        data:
+          title: "Irrigation Fault — Zone 0"
+          message: "{{ states('sensor.irrigation_zone_0_fault_reason') }}"
+
+  - alias: "Irrigation Zone 1 Fault Alert"
+    id: irrigation_zone1_fault_alert
+    trigger:
+      - platform: state
+        entity_id: sensor.irrigation_zone_1_state
+        to: "fault"
+    action:
+      - service: notify.notify
+        data:
+          title: "Irrigation Fault — Zone 1"
+          message: "{{ states('sensor.irrigation_zone_1_fault_reason') }}"
+
+  # Alert when controller goes offline (LWT fired)
+  - alias: "Irrigation Controller Offline Alert"
+    id: irrigation_controller_offline_alert
+    trigger:
+      - platform: state
+        entity_id: binary_sensor.irrigation_zone_0_online
+        to: "off"
+        for:
+          seconds: 30
+    action:
+      - service: notify.notify
+        data:
+          title: "Irrigation Controller Offline"
+          message: "The irrigation controller has lost MQTT connectivity."

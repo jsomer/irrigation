@@ -1,16 +1,16 @@
 #pragma once
-#include <cstdint>
+#include <Arduino.h>
 
 // ── Hardware ──────────────────────────────────────────────────────────────────
-// VH400 sensors connect to ADC-capable pins (GPIO 32-39 on ESP32).
+// VH400 sensors connect to analog input pins.
 // Valves connect through a relay/MOSFET driver; pin is HIGH = valve open.
 
 namespace Pin {
-  constexpr uint8_t SENSOR_ZONE_0  = 34;
-  constexpr uint8_t SENSOR_ZONE_1  = 35;
-  constexpr uint8_t VALVE_ZONE_0   = 26;
-  constexpr uint8_t VALVE_ZONE_1   = 27;
-  constexpr uint8_t STATUS_LED     = 2;   // built-in LED
+  constexpr uint8_t SENSOR_ZONE_0  = A0;
+  constexpr uint8_t SENSOR_ZONE_1  = A1;
+  constexpr uint8_t VALVE_ZONE_0   = 5;
+  constexpr uint8_t VALVE_ZONE_1   = 6;
+  constexpr uint8_t STATUS_LED     = LED_BUILTIN;
 }
 
 // ── Zones ─────────────────────────────────────────────────────────────────────
@@ -38,8 +38,8 @@ namespace Safety {
 namespace Sensor {
   constexpr uint8_t  AVERAGING_SAMPLES  = 16;
   constexpr uint32_t READ_INTERVAL_MS   = 5000;
-  constexpr float    VCC                = 3.3f;
-  constexpr uint16_t ADC_MAX            = 4095;
+  constexpr float    VCC                = 5.0f;   // AVCC = 5 V on UNO R4
+  constexpr uint16_t ADC_MAX            = 1023;   // 10-bit default resolution
 }
 
 // ── Default pulse parameters (overridable at runtime via MQTT config topic) ───

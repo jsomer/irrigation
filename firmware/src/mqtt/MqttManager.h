@@ -1,6 +1,6 @@
 #pragma once
 #include <Arduino.h>
-#include <WiFi.h>
+#include <WiFiS3.h>
 #include <PubSubClient.h>
 #include <ArduinoJson.h>
 #include <functional>
@@ -25,17 +25,18 @@ public:
   // Call every loop iteration. Handles reconnect + PubSubClient::loop().
   void loop();
 
-  bool isConnected() const;
+  bool isConnected();
 
   // Seconds since last successful MQTT connection. Used for failsafe logic.
-  uint32_t secondsSinceConnected() const;
+  uint32_t secondsSinceConnected();
 
   void setCommandCallback(CommandCallback cb);
 
   // Publish sensor + zone telemetry for one zone.
   void publishTelemetry(uint8_t zoneId, float vwc, bool valveOpen,
                         uint32_t runtimeTodayS, uint32_t runtimeHourS,
-                        uint32_t pulseCount, const char* state);
+                        uint32_t pulseCount, const char* state,
+                        const char* faultReason = nullptr);
 
   // Publish zone online/offline status (also used as LWT).
   void publishStatus(uint8_t zoneId, const char* status);

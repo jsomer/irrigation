@@ -1,7 +1,7 @@
 #include <Arduino.h>
-#include <WiFi.h>
-#include <esp_log.h>
+#include <WiFiS3.h>
 
+#include "log.h"
 #include "config.h"
 #include "secrets.h"
 #include "sensors/VH400.h"
@@ -34,8 +34,7 @@ float latestVWC[ZONE_COUNT] = { -1.0f, -1.0f };
 // ── WiFi ──────────────────────────────────────────────────────────────────────
 
 void connectWiFi() {
-  ESP_LOGI(TAG, "Connecting to WiFi %s …", WIFI_SSID);
-  WiFi.mode(WIFI_STA);
+  LOG_I(TAG, "Connecting to WiFi %s ...", WIFI_SSID);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 
   uint8_t retries = 0;
@@ -45,9 +44,9 @@ void connectWiFi() {
   }
 
   if (WiFi.status() == WL_CONNECTED) {
-    ESP_LOGI(TAG, "WiFi connected. IP: %s", WiFi.localIP().toString().c_str());
+    LOG_I(TAG, "WiFi connected. IP: %s", WiFi.localIP().toString().c_str());
   } else {
-    ESP_LOGE(TAG, "WiFi failed — running in offline failsafe mode");
+    LOG_E(TAG, "WiFi failed - running in offline failsafe mode");
   }
 }
 
@@ -68,11 +67,11 @@ void onCommand(const MqttCommand& cmd) {
   JsonDocument& doc = *cmd.doc;
   const char* action = doc["action"] | "";
 
-  ESP_LOGI(TAG, "Command zone %d: %s", z, action);
+  LOG_I(TAG, "Command zone %d: %s", z, action);
 
   if (strcmp(action, "pulse") == 0) {
     if (!zones[z].requestPulse()) {
-      ESP_LOGW(TAG, "Zone %d pulse request denied", z);
+      LOG_W(TAG, "Zone %d pulse request denied", z);
     }
 
   } else if (strcmp(action, "close") == 0) {
@@ -85,15 +84,15 @@ void onCommand(const MqttCommand& cmd) {
     // AI/HA sends recommended parameter updates.
     // ZoneController clamps everything to hard safety limits internally.
     PulseParams p = zones[z].params();
-    if (doc.containsKey("pulse_duration_s"))  p.pulseDurationS  = doc["pulse_duration_s"];
-    if (doc.containsKey("settle_duration_s")) p.settleDurationS = doc["settle_duration_s"];
-    if (doc.containsKey("target_vwc"))        p.targetVWC       = doc["target_vwc"];
-    if (doc.containsKey("resume_vwc"))        p.resumeVWC       = doc["resume_vwc"];
+    if (doc["pulse_duration_s"].is<uint16_t>())  p.pulseDurationS  = doc["pulse_duration_s"];
+    if (doc["settle_duration_s"].is<uint16_t>()) p.settleDurationS = doc["settle_duration_s"];
+    if (doc["target_vwc"].is<float>())           p.targetVWC       = doc["target_vwc"];
+    if (doc["resume_vwc"].is<float>())           p.resumeVWC       = doc["resume_vwc"];
     zones[z].setParams(p);
-    ESP_LOGI(TAG, "Zone %d params updated", z);
+    LOG_I(TAG, "Zone %d params updated", z);
 
   } else {
-    ESP_LOGW(TAG, "Unknown action: %s", action);
+    LOG_W(TAG, "Unknown action: %s", action);
   }
 }
 
@@ -109,7 +108,7 @@ void checkAutoTrigger() {
     const PulseParams& p = zones[z].params();
 
     if (state == ZoneState::IDLE && vwc < p.resumeVWC) {
-      ESP_LOGI(TAG, "Zone %d auto-pulse: VWC %.1f < resume %.1f", z, vwc, p.resumeVWC);
+      LOG_I(TAG, "Zone %d auto-pulse: VWC %.1f < resume %.1f", z, vwc, p.resumeVWC);
       zones[z].requestPulse();
     }
   }
@@ -122,7 +121,7 @@ void checkFailsafe() {
   if (disconnectedS >= Safety::FAILSAFE_DISCONNECT_S) {
     for (uint8_t z = 0; z < ZONE_COUNT; z++) {
       if (zones[z].telemetry().valveOpen) {
-        ESP_LOGE(TAG, "FAILSAFE: MQTT lost %d s, closing zone %d", disconnectedS, z);
+        LOG_E(TAG, "FAILSAFE: MQTT lost %lu s, closing zone %d", disconnectedS, z);
         zones[z].forceClose();
       }
     }
@@ -145,7 +144,7 @@ void setup() {
   mqtt.setCommandCallback(onCommand);
   mqtt.begin(MQTT_CLIENT_ID);
 
-  ESP_LOGI(TAG, "Irrigation controller ready");
+  LOG_I(TAG, "Irrigation controller ready");
 }
 
 void loop() {
@@ -178,7 +177,8 @@ void loop() {
       ZoneTelemetry t = zones[z].telemetry();
       mqtt.publishTelemetry(z, latestVWC[z], t.valveOpen,
                             t.runtimeTodayS, t.runtimeHourS,
-                            t.pulseCount, zoneStateName(t.state));
+                            t.pulseCount, zoneStateName(t.state),
+                            t.faultReason);
     }
     // Blink LED to show we're alive
     digitalWrite(Pin::STATUS_LED, !digitalRead(Pin::STATUS_LED));

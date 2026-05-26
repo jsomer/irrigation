@@ -12,8 +12,6 @@ VH400::VH400(uint8_t pin, uint8_t averagingSamples)
 
 void VH400::begin() {
   pinMode(_pin, INPUT);
-  // Full 0–3.3 V range on ESP32 ADC
-  analogSetPinAttenuation(_pin, ADC_11db);
 }
 
 float VH400::readVoltage() {

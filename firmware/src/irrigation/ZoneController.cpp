@@ -1,5 +1,5 @@
 #include "ZoneController.h"
-#include <esp_log.h>
+#include "../log.h"
 
 static const char* TAG = "ZoneController";
 
@@ -23,14 +23,14 @@ void ZoneController::begin() {
   digitalWrite(_pin, LOW);
   _hourWindowStartMs = millis();
   _dayWindowStartMs  = millis();
-  ESP_LOGI(TAG, "Zone %d initialised on pin %d", _id, _pin);
+  LOG_I(TAG, "Zone %d initialised on pin %d", _id, _pin);
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
 bool ZoneController::requestPulse() {
   if (_state != ZoneState::IDLE) {
-    ESP_LOGW(TAG, "Zone %d pulse request ignored: state=%d", _id, (int)_state);
+    LOG_W(TAG, "Zone %d pulse request ignored: state=%d", _id, (int)_state);
     return false;
   }
   if (!canOpen()) {
@@ -41,7 +41,7 @@ bool ZoneController::requestPulse() {
   _pulseStartMs = millis();
   _state = ZoneState::PULSING;
   _pulseCount++;
-  ESP_LOGI(TAG, "Zone %d pulse started (count=%lu)", _id, _pulseCount);
+  LOG_I(TAG, "Zone %d pulse started (count=%lu)", _id, _pulseCount);
   return true;
 }
 
@@ -50,25 +50,25 @@ void ZoneController::forceClose() {
   if (_state != ZoneState::FAULT) {
     _state = ZoneState::IDLE;
   }
-  ESP_LOGW(TAG, "Zone %d force-closed", _id);
+  LOG_W(TAG, "Zone %d force-closed", _id);
 }
 
 void ZoneController::clearFault() {
   if (_state == ZoneState::FAULT) {
     _faultReason = nullptr;
     _state = ZoneState::IDLE;
-    ESP_LOGI(TAG, "Zone %d fault cleared", _id);
+    LOG_I(TAG, "Zone %d fault cleared", _id);
   }
 }
 
 bool ZoneController::setParams(const PulseParams& p) {
   // Clamp to hard safety limits — AI/HA cannot exceed them
   if (p.pulseDurationS > Safety::MAX_PULSE_DURATION_S) {
-    ESP_LOGW(TAG, "Zone %d: pulseDuration %d clamped to %d",
+    LOG_W(TAG, "Zone %d: pulseDuration %d clamped to %d",
              _id, p.pulseDurationS, Safety::MAX_PULSE_DURATION_S);
   }
   if (p.settleDurationS < Safety::MIN_SETTLE_S) {
-    ESP_LOGW(TAG, "Zone %d: settleDuration %d clamped to %d",
+    LOG_W(TAG, "Zone %d: settleDuration %d clamped to %d",
              _id, p.settleDurationS, Safety::MIN_SETTLE_S);
   }
 
@@ -88,13 +88,9 @@ void ZoneController::update() {
     case ZoneState::PULSING: {
       uint32_t elapsed = currentPulseRuntimeS();
 
-      // Accumulate runtime into time-window buckets
-      _runtimeHourS = min(_runtimeHourS + 0u, _runtimeHourS);  // updated on close
-      _runtimeTodayS = min(_runtimeTodayS + 0u, _runtimeTodayS);
-
       // Hard limit: pulse ran too long
       if (elapsed >= Safety::MAX_PULSE_DURATION_S) {
-        ESP_LOGW(TAG, "Zone %d: hard pulse limit hit (%d s)", _id, elapsed);
+        LOG_W(TAG, "Zone %d: hard pulse limit hit (%d s)", _id, elapsed);
         closeValve();
         enterFault("max pulse duration exceeded");
         break;
@@ -105,7 +101,7 @@ void ZoneController::update() {
         closeValve();
         _settleStartMs = millis();
         _state = ZoneState::SETTLING;
-        ESP_LOGI(TAG, "Zone %d pulse done (%d s), settling %d s",
+        LOG_I(TAG, "Zone %d pulse done (%d s), settling %d s",
                  _id, elapsed, _params.settleDurationS);
       }
       break;
@@ -115,7 +111,7 @@ void ZoneController::update() {
       uint32_t settledS = (millis() - _settleStartMs) / 1000UL;
       if (settledS >= _params.settleDurationS) {
         _state = ZoneState::IDLE;
-        ESP_LOGI(TAG, "Zone %d settle complete", _id);
+        LOG_I(TAG, "Zone %d settle complete", _id);
       }
       break;
     }
@@ -169,7 +165,7 @@ void ZoneController::enterFault(const char* reason) {
   closeValve();
   _state = ZoneState::FAULT;
   _faultReason = reason;
-  ESP_LOGE(TAG, "Zone %d FAULT: %s", _id, reason);
+  LOG_E(TAG, "Zone %d FAULT: %s", _id, reason);
 }
 
 void ZoneController::tickTimeWindows() {

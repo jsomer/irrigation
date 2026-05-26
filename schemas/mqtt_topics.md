@@ -23,6 +23,17 @@ Published every 10 s (configurable via `TELEMETRY_INTERVAL_MS`).
 }
 ```
 
+When `state` is `"fault"`, a `fault_reason` field is also present:
+
+```json
+{
+  "zone": 0,
+  "state": "fault",
+  "fault_reason": "max pulse duration exceeded",
+  ...
+}
+```
+
 | Field | Type | Description |
 |---|---|---|
 | `zone` | int | Zone ID |
@@ -32,7 +43,8 @@ Published every 10 s (configurable via `TELEMETRY_INTERVAL_MS`).
 | `runtime_hour_s` | int | Total valve-open seconds in current hour window |
 | `pulse_count` | int | Total pulses since boot |
 | `state` | string | `idle` \| `pulsing` \| `settling` \| `fault` |
-| `ts` | int | ESP32 uptime seconds at publish time |
+| `fault_reason` | string | Human-readable fault description; only present when `state` is `fault` |
+| `ts` | int | Uptime seconds at publish time |
 
 ---
 

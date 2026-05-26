@@ -1,5 +1,5 @@
 #include "MqttManager.h"
-#include <esp_log.h>
+#include "../log.h"
 #include <cstring>
 #include <cstdio>
 
@@ -48,11 +48,11 @@ void MqttManager::loop() {
   }
 }
 
-bool MqttManager::isConnected() const {
+bool MqttManager::isConnected() {
   return _mqtt.connected();
 }
 
-uint32_t MqttManager::secondsSinceConnected() const {
+uint32_t MqttManager::secondsSinceConnected() {
   if (_mqtt.connected()) return 0;
   return (millis() - _lastConnectedMs) / 1000UL;
 }
@@ -61,7 +61,8 @@ uint32_t MqttManager::secondsSinceConnected() const {
 
 void MqttManager::publishTelemetry(uint8_t zoneId, float vwc, bool valveOpen,
                                    uint32_t runtimeTodayS, uint32_t runtimeHourS,
-                                   uint32_t pulseCount, const char* state) {
+                                   uint32_t pulseCount, const char* state,
+                                   const char* faultReason) {
   if (!_mqtt.connected()) return;
 
   char topic[64];
@@ -75,12 +76,13 @@ void MqttManager::publishTelemetry(uint8_t zoneId, float vwc, bool valveOpen,
   doc["runtime_hour_s"]   = runtimeHourS;
   doc["pulse_count"]      = pulseCount;
   doc["state"]            = state;
+  if (faultReason)        doc["fault_reason"] = faultReason;
   doc["ts"]               = millis() / 1000UL;
 
   char buf[256];
-  size_t n = serializeJson(doc, buf, sizeof(buf));
+  serializeJson(doc, buf, sizeof(buf));
   _mqtt.publish(topic, buf, false);
-  ESP_LOGD(TAG, "telemetry zone %d: %s", zoneId, buf);
+  LOG_D(TAG, "telemetry zone %d: %s", zoneId, buf);
 }
 
 void MqttManager::publishStatus(uint8_t zoneId, const char* status) {
@@ -92,7 +94,7 @@ void MqttManager::publishStatus(uint8_t zoneId, const char* status) {
 // ── Private ───────────────────────────────────────────────────────────────────
 
 bool MqttManager::reconnect() {
-  ESP_LOGI(TAG, "Connecting to MQTT %s:%d …", _broker, _port);
+  LOG_I(TAG, "Connecting to MQTT %s:%d ...", _broker, _port);
 
   // Build LWT topic for zone 0 (primary zone used for device-level status)
   char lwtTopic[64];
@@ -101,14 +103,14 @@ bool MqttManager::reconnect() {
   bool ok = _mqtt.connect(_clientId, _user, _password,
                           lwtTopic, 1, true, "offline");
   if (ok) {
-    ESP_LOGI(TAG, "MQTT connected");
+    LOG_I(TAG, "MQTT connected");
     subscribeAll();
     // Publish online for all zones
     for (uint8_t z = 0; z < _zoneCount; z++) {
       publishStatus(z, "online");
     }
   } else {
-    ESP_LOGW(TAG, "MQTT connect failed, rc=%d", _mqtt.state());
+    LOG_W(TAG, "MQTT connect failed, rc=%d", _mqtt.state());
   }
   return ok;
 }
@@ -118,11 +120,11 @@ void MqttManager::subscribeAll() {
   for (uint8_t z = 0; z < _zoneCount; z++) {
     buildTopic(topic, sizeof(topic), z, MQTT_TOPIC_COMMAND);
     _mqtt.subscribe(topic);
-    ESP_LOGD(TAG, "Subscribed: %s", topic);
+    LOG_D(TAG, "Subscribed: %s", topic);
 
     buildTopic(topic, sizeof(topic), z, MQTT_TOPIC_CONFIG);
     _mqtt.subscribe(topic);
-    ESP_LOGD(TAG, "Subscribed: %s", topic);
+    LOG_D(TAG, "Subscribed: %s", topic);
   }
 }
 
@@ -138,12 +140,12 @@ void MqttManager::onMqttMessage(char* topic, byte* payload, unsigned int length)
 }
 
 void MqttManager::handleMessage(char* topic, byte* payload, unsigned int length) {
-  ESP_LOGD(TAG, "Received [%s] len=%d", topic, length);
+  LOG_D(TAG, "Received [%s] len=%d", topic, length);
 
   JsonDocument doc;
   DeserializationError err = deserializeJson(doc, payload, length);
   if (err) {
-    ESP_LOGW(TAG, "JSON parse error: %s", err.c_str());
+    LOG_W(TAG, "JSON parse error: %s", err.c_str());
     return;
   }
 
@@ -157,7 +159,7 @@ void MqttManager::handleMessage(char* topic, byte* payload, unsigned int length)
   }
 
   if (zoneId < 0 || zoneId >= _zoneCount) {
-    ESP_LOGW(TAG, "Unrecognised topic or zone: %s", topic);
+    LOG_W(TAG, "Unrecognised topic or zone: %s", topic);
     return;
   }
 
