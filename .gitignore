@@ -1,0 +1,17 @@
+# Firmware credentials — never commit
+firmware/src/secrets.h
+
+# PlatformIO build artifacts
+firmware/.pio/
+firmware/.pioenvs/
+
+# IDE
+.vscode/
+.idea/
+*.DS_Store
+
+# Python (for future AI layer scripts)
+__pycache__/
+*.pyc
+.venv/
+venv/
