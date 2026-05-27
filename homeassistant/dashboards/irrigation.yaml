@@ -1,0 +1,103 @@
+title: Irrigation
+views:
+  - title: Irrigation
+    path: irrigation
+    icon: mdi:sprinkler-variant
+    cards:
+
+      # ── Moisture History ────────────────────────────────────────────────────
+      - type: history-graph
+        title: Moisture History (48 h)
+        hours_to_show: 48
+        entities:
+          - entity: sensor.irrigation_sensor_0_vwc
+            name: Sensor 0
+          - entity: sensor.irrigation_sensor_1_vwc
+            name: Sensor 1
+
+      # ── Current Moisture ────────────────────────────────────────────────────
+      - type: horizontal-stack
+        cards:
+          - type: gauge
+            name: Sensor 0
+            entity: sensor.irrigation_sensor0_vwc_numeric
+            unit: "%"
+            min: 0
+            max: 60
+            severity:
+              green: 30
+              yellow: 20
+              red: 0
+
+          - type: gauge
+            name: Sensor 1
+            entity: sensor.irrigation_sensor1_vwc_numeric
+            unit: "%"
+            min: 0
+            max: 60
+            severity:
+              green: 30
+              yellow: 20
+              red: 0
+
+      # ── Valve Status ────────────────────────────────────────────────────────
+      - type: entities
+        title: Valve Status
+        entities:
+          - entity: binary_sensor.irrigation_controller_online
+            name: Controller
+          - entity: binary_sensor.irrigation_valve
+            name: Valve
+          - entity: sensor.irrigation_valve_state_str
+            name: State
+          - entity: sensor.irrigation_valve_pulse_count
+            name: Pulse Count
+          - entity: sensor.irrigation_valve_runtime_today
+            name: Runtime Today
+          - entity: sensor.irrigation_valve_runtime_hour
+            name: Runtime This Hour
+
+      # ── Manual Controls ─────────────────────────────────────────────────────
+      - type: entities
+        title: Manual Controls
+        entities:
+          - entity: button.irrigation_valve_pulse
+            name: Pulse Valve
+          - entity: button.irrigation_valve_close
+            name: Force Close
+          - entity: button.irrigation_clear_fault
+            name: Clear Fault
+
+      # ── Valve Timing ────────────────────────────────────────────────────────
+      - type: vertical-stack
+        cards:
+          - type: entities
+            title: Valve Timing
+            entities:
+              - entity: input_number.irrigation_pulse_duration
+                name: Pulse Duration
+              - entity: input_number.irrigation_settle_duration
+                name: Settle Duration
+          - type: markdown
+            content: >
+              Pulse: **{{ states('sensor.pulse_duration_display') }}**
+              &nbsp;&nbsp;|&nbsp;&nbsp;
+              Settle: **{{ states('sensor.settle_duration_display') }}**
+
+      # ── Dry Thresholds ──────────────────────────────────────────────────────
+      - type: entities
+        title: Dry Thresholds
+        entities:
+          - entity: input_number.irrigation_sensor0_resume_vwc
+            name: Sensor 0 Resume VWC
+          - entity: input_number.irrigation_sensor1_resume_vwc
+            name: Sensor 1 Resume VWC
+
+      # ── Measurement Intervals ───────────────────────────────────────────────
+      - type: entities
+        title: Measurement Intervals
+        entities:
+          - entity: input_number.irrigation_sensor_interval
+            name: Sensor Read Interval
+          - entity: input_number.irrigation_telemetry_interval
+            name: Telemetry Publish Interval
