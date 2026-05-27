@@ -17,7 +17,7 @@ mqtt:
     - name: "Irrigation Zone 0 VWC"
       unique_id: irrigation_zone0_vwc
       state_topic: "irrigation/zone/0/telemetry"
-      value_template: "{{ value_json.vwc }}"
+      value_template: "{{ value_json.vwc | float }}"
       unit_of_measurement: "%"
       device_class: moisture
       state_class: measurement
@@ -60,7 +60,7 @@ mqtt:
     - name: "Irrigation Zone 1 VWC"
       unique_id: irrigation_zone1_vwc
       state_topic: "irrigation/zone/1/telemetry"
-      value_template: "{{ value_json.vwc }}"
+      value_template: "{{ value_json.vwc | float }}"
       unit_of_measurement: "%"
       device_class: moisture
       state_class: measurement
@@ -106,8 +106,8 @@ mqtt:
       unique_id: irrigation_zone0_valve
       state_topic: "irrigation/zone/0/telemetry"
       value_template: "{{ value_json.valve_open }}"
-      payload_on: "True"
-      payload_off: "False"
+      payload_on: "true"
+      payload_off: "false"
       device_class: opening
 
     - name: "Irrigation Zone 0 Online"
@@ -121,8 +121,8 @@ mqtt:
       unique_id: irrigation_zone1_valve
       state_topic: "irrigation/zone/1/telemetry"
       value_template: "{{ value_json.valve_open }}"
-      payload_on: "True"
-      payload_off: "False"
+      payload_on: "true"
+      payload_off: "false"
       device_class: opening
 
     - name: "Irrigation Zone 1 Online"
@@ -207,3 +207,202 @@ automation:
         data:
           title: "Irrigation Controller Offline"
           message: "The irrigation controller has lost MQTT connectivity."
+
+  - alias: "Irrigation Zone 0 Apply Config"
+    id: irrigation_zone0_apply_config
+    mode: restart
+    trigger:
+      - platform: state
+        entity_id:
+          - input_number.irrigation_zone0_pulse_duration
+          - input_number.irrigation_zone0_settle_duration
+          - input_number.irrigation_zone0_resume_vwc
+          - input_number.irrigation_zone0_target_vwc
+    action:
+      - delay: "00:00:01"
+      - service: mqtt.publish
+        data:
+          topic: "irrigation/zone/0/command"
+          payload: >-
+            {"action":"configure",
+             "pulse_duration_s":{{ states('input_number.irrigation_zone0_pulse_duration') | int }},
+             "settle_duration_s":{{ states('input_number.irrigation_zone0_settle_duration') | int }},
+             "target_vwc":{{ states('input_number.irrigation_zone0_target_vwc') | float }},
+             "resume_vwc":{{ states('input_number.irrigation_zone0_resume_vwc') | float }}}
+
+  - alias: "Irrigation Zone 1 Apply Config"
+    id: irrigation_zone1_apply_config
+    mode: restart
+    trigger:
+      - platform: state
+        entity_id:
+          - input_number.irrigation_zone1_pulse_duration
+          - input_number.irrigation_zone1_settle_duration
+          - input_number.irrigation_zone1_resume_vwc
+          - input_number.irrigation_zone1_target_vwc
+    action:
+      - delay: "00:00:01"
+      - service: mqtt.publish
+        data:
+          topic: "irrigation/zone/1/command"
+          payload: >-
+            {"action":"configure",
+             "pulse_duration_s":{{ states('input_number.irrigation_zone1_pulse_duration') | int }},
+             "settle_duration_s":{{ states('input_number.irrigation_zone1_settle_duration') | int }},
+             "target_vwc":{{ states('input_number.irrigation_zone1_target_vwc') | float }},
+             "resume_vwc":{{ states('input_number.irrigation_zone1_resume_vwc') | float }}}
+
+  - alias: "Irrigation Apply Measurement Config"
+    id: irrigation_apply_measurement_config
+    mode: restart
+    trigger:
+      - platform: state
+        entity_id:
+          - input_number.irrigation_sensor_interval
+          - input_number.irrigation_telemetry_interval
+    action:
+      - delay: "00:00:01"
+      - service: mqtt.publish
+        data:
+          topic: "irrigation/zone/0/command"
+          payload: >-
+            {"action":"configure",
+             "sensor_interval_s":{{ states('input_number.irrigation_sensor_interval') | int }},
+             "telemetry_interval_s":{{ states('input_number.irrigation_telemetry_interval') | int }}}
+      - service: mqtt.publish
+        data:
+          topic: "irrigation/zone/1/command"
+          payload: >-
+            {"action":"configure",
+             "sensor_interval_s":{{ states('input_number.irrigation_sensor_interval') | int }},
+             "telemetry_interval_s":{{ states('input_number.irrigation_telemetry_interval') | int }}}
+
+# ── Input helpers ──────────────────────────────────────────────────────────────
+input_number:
+
+  irrigation_zone0_pulse_duration:
+    name: "Zone 0 Pulse Duration"
+    min: 5
+    max: 120
+    step: 5
+    initial: 30
+    unit_of_measurement: "s"
+    icon: mdi:timer-play-outline
+
+  irrigation_zone0_settle_duration:
+    name: "Zone 0 Settle Duration"
+    min: 60
+    max: 600
+    step: 30
+    initial: 300
+    unit_of_measurement: "s"
+    icon: mdi:timer-pause-outline
+
+  irrigation_zone0_resume_vwc:
+    name: "Zone 0 Resume VWC"
+    min: 5
+    max: 60
+    step: 1
+    initial: 25
+    unit_of_measurement: "%"
+    icon: mdi:water-minus
+
+  irrigation_zone0_target_vwc:
+    name: "Zone 0 Target VWC"
+    min: 5
+    max: 60
+    step: 1
+    initial: 40
+    unit_of_measurement: "%"
+    icon: mdi:water-check
+
+  irrigation_zone1_pulse_duration:
+    name: "Zone 1 Pulse Duration"
+    min: 5
+    max: 120
+    step: 5
+    initial: 30
+    unit_of_measurement: "s"
+    icon: mdi:timer-play-outline
+
+  irrigation_zone1_settle_duration:
+    name: "Zone 1 Settle Duration"
+    min: 60
+    max: 600
+    step: 30
+    initial: 300
+    unit_of_measurement: "s"
+    icon: mdi:timer-pause-outline
+
+  irrigation_zone1_resume_vwc:
+    name: "Zone 1 Resume VWC"
+    min: 5
+    max: 60
+    step: 1
+    initial: 25
+    unit_of_measurement: "%"
+    icon: mdi:water-minus
+
+  irrigation_zone1_target_vwc:
+    name: "Zone 1 Target VWC"
+    min: 5
+    max: 60
+    step: 1
+    initial: 40
+    unit_of_measurement: "%"
+    icon: mdi:water-check
+
+  irrigation_sensor_interval:
+    name: "Sensor Read Interval"
+    min: 1
+    max: 60
+    step: 1
+    initial: 5
+    unit_of_measurement: "s"
+    icon: mdi:clock-fast
+
+  irrigation_telemetry_interval:
+    name: "Telemetry Interval"
+    min: 5
+    max: 300
+    step: 5
+    initial: 10
+    unit_of_measurement: "s"
+    icon: mdi:broadcast
+
+# ── Formatted m:ss display sensors ────────────────────────────────────────────
+template:
+  - sensor:
+      - name: "Zone 0 Pulse Duration Display"
+        unique_id: irrigation_zone0_pulse_dur_display
+        state: >
+          {% set s = states('input_number.irrigation_zone0_pulse_duration') | int(0) %}
+          {{ s // 60 }}m {{ '%02d' % (s % 60) }}s
+      - name: "Zone 0 Settle Duration Display"
+        unique_id: irrigation_zone0_settle_dur_display
+        state: >
+          {% set s = states('input_number.irrigation_zone0_settle_duration') | int(0) %}
+          {{ s // 60 }}m {{ '%02d' % (s % 60) }}s
+      - name: "Zone 1 Pulse Duration Display"
+        unique_id: irrigation_zone1_pulse_dur_display
+        state: >
+          {% set s = states('input_number.irrigation_zone1_pulse_duration') | int(0) %}
+          {{ s // 60 }}m {{ '%02d' % (s % 60) }}s
+      - name: "Zone 1 Settle Duration Display"
+        unique_id: irrigation_zone1_settle_dur_display
+        state: >
+          {% set s = states('input_number.irrigation_zone1_settle_duration') | int(0) %}
+          {{ s // 60 }}m {{ '%02d' % (s % 60) }}s
+
+      - name: "Zone 0 VWC Numeric"
+        unique_id: irrigation_zone0_vwc_numeric
+        state: "{{ states('sensor.irrigation_zone_0_vwc') | float(0) }}"
+        unit_of_measurement: "%"
+        state_class: measurement
+
+      - name: "Zone 1 VWC Numeric"
+        unique_id: irrigation_zone1_vwc_numeric
+        state: "{{ states('sensor.irrigation_zone_1_vwc') | float(0) }}"
+        unit_of_measurement: "%"
+        state_class: measurement
+

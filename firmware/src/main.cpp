@@ -132,6 +132,8 @@ void checkFailsafe() {
 
 void setup() {
   Serial.begin(115200);
+  while (!Serial) {}
+  Serial.println("\n=== Irrigation Controller booting ===");
   pinMode(Pin::STATUS_LED, OUTPUT);
 
   for (uint8_t z = 0; z < ZONE_COUNT; z++) {
@@ -179,6 +181,7 @@ void loop() {
                             t.runtimeTodayS, t.runtimeHourS,
                             t.pulseCount, zoneStateName(t.state),
                             t.faultReason);
+      LOG_I(TAG, "tx z%d vwc=%.1f%% %s", z, latestVWC[z], zoneStateName(t.state));
     }
     // Blink LED to show we're alive
     digitalWrite(Pin::STATUS_LED, !digitalRead(Pin::STATUS_LED));

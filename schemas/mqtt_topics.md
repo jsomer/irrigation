@@ -5,7 +5,7 @@ All topics follow the pattern `irrigation/zone/<zoneId>/<suffix>`.
 
 ---
 
-## Published by ESP32
+## Published by UNO R4 WiFi
 
 ### `irrigation/zone/<id>/telemetry`
 Published every 10 s (configurable via `TELEMETRY_INTERVAL_MS`).

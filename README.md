@@ -70,7 +70,7 @@ Quick reference:
 ## Home Assistant Integration
 
 See [homeassistant/packages/irrigation.yaml](homeassistant/packages/irrigation.yaml) for a
-ready-to-use HA package that defines sensors, binary sensors, buttons, and automations for both zones.
+ready-to-use HA package that defines sensors, binary sensors, buttons, input helpers, and automations for both zones.
 
 **To enable the package**, add this to your `configuration.yaml`:
 
@@ -83,6 +83,15 @@ homeassistant:
 Then copy `homeassistant/packages/irrigation.yaml` into your HA `config/packages/` directory
 and restart HA.
 
+### Dashboard
+
+A Lovelace dashboard YAML is maintained in the project. It provides:
+
+- **Moisture history graph** — 48-hour VWC trend for all zones
+- **Current moisture glance** — live VWC reading per zone
+- **Per-zone controls** — sliders for dry threshold (`resume_vwc`), target VWC, pulse on-time, and settle wait; changes are automatically published to the firmware via MQTT
+- **Measurement interval controls** — sensor read and telemetry publish intervals (requires firmware update to take effect)
+
 ### Sending commands from HA
 
 ```yaml
@@ -92,7 +101,7 @@ data:
   topic: irrigation/zone/0/command
   payload: '{"action": "pulse"}'
 
-# Update AI-recommended parameters (clamped to safety limits on the controller)
+# Update parameters (clamped to hard safety limits on the controller)
 service: mqtt.publish
 data:
   topic: irrigation/zone/0/command
@@ -120,5 +129,7 @@ schemas/
   mqtt_topics.md          MQTT topic reference + JSON schemas
 homeassistant/
   packages/
-    irrigation.yaml       HA MQTT sensors, buttons, and automations
+    irrigation.yaml       HA package: sensors, buttons, input helpers, automations
+docs/
+  theory_of_operation.md  detailed firmware and protocol design notes
 ```
