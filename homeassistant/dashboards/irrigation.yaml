@@ -20,7 +20,7 @@ views:
         cards:
           - type: gauge
             name: Sensor 0
-            entity: sensor.irrigation_sensor0_vwc_numeric
+            entity: sensor.irrigation_sensor_0_vwc
             unit: "%"
             min: 0
             max: 60
@@ -31,7 +31,7 @@ views:
 
           - type: gauge
             name: Sensor 1
-            entity: sensor.irrigation_sensor1_vwc_numeric
+            entity: sensor.irrigation_sensor_1_vwc
             unit: "%"
             min: 0
             max: 60

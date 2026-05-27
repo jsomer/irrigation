@@ -202,18 +202,6 @@ template:
           {% set s = states('input_number.irrigation_settle_duration') | int(0) %}
           {{ s // 60 }}m {{ '%02d' % (s % 60) }}s
 
-      # Numeric wrappers for gauge cards
-      - name: "Sensor 0 VWC Numeric"
-        unique_id: irrigation_sensor0_vwc_numeric
-        state: "{{ states('sensor.irrigation_sensor_0_vwc') | float(0) }}"
-        unit_of_measurement: "%"
-        state_class: measurement
-
-      - name: "Sensor 1 VWC Numeric"
-        unique_id: irrigation_sensor1_vwc_numeric
-        state: "{{ states('sensor.irrigation_sensor_1_vwc') | float(0) }}"
-        unit_of_measurement: "%"
-        state_class: measurement
 
 # ── Automations ────────────────────────────────────────────────────────────────
 automation:
