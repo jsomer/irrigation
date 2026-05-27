@@ -48,7 +48,7 @@ views:
             name: Controller
           - entity: binary_sensor.irrigation_valve
             name: Valve
-          - entity: sensor.irrigation_valve_state_str
+          - entity: sensor.irrigation_valve_state
             name: State
           - entity: sensor.irrigation_valve_pulse_count
             name: Pulse Count
