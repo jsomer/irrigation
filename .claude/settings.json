@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls /dev/tty.* /dev/cu.* 2>/dev/null)",
+      "Read(//dev/**)",
+      "Bash(/Users/johnsomerville/.platformio/penv/bin/pio device *)",
+      "Bash(kill 46879)"
+    ]
+  }
+}
