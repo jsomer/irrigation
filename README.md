@@ -7,28 +7,31 @@ Home Assistant integration, and an AI parameter-tuning layer.
 
 ```
 VH400 Sensors → UNO R4 WiFi → MQTT → Home Assistant (dashboards/history)
-                                           ↕
-                                     AI Analysis Layer
-                                           ↕ (recommend only)
-                                     UNO R4 WiFi (enforces hard limits)
+                                          ↕
+                                    AI Analysis Layer
+                                          ↕ (recommend only)
+                                    UNO R4 WiFi (enforces hard limits)
 ```
+
+**One solenoid valve** is shared across all zones. The valve fires automatically when
+*any* sensor VWC drops below that sensor's configured dry threshold. Moisture
+differences between sensors inform physical sprinkler/soaker-hose positioning.
 
 ## Hardware
 
 | Component | Part |
 |---|---|
 | Microcontroller | Arduino UNO R4 WiFi |
-| Soil moisture | Vegetronix VH400 (0–3 V analog out) |
-| Valve driver | 5 V relay module or MOSFET driver |
+| Soil moisture | Vegetronix VH400 (0–3 V analog out, one per zone) |
+| Valve driver | 5 V relay module or MOSFET driver (single valve) |
 
 ### Pin Assignments (configurable in `firmware/src/config.h`)
 
 | Function | Pin |
 |---|---|
-| VH400 Zone 0 | A0 |
-| VH400 Zone 1 | A1 |
-| Valve Zone 0 | D5 |
-| Valve Zone 1 | D6 |
+| VH400 Sensor 0 | A0 |
+| VH400 Sensor 1 | A1 |
+| Solenoid Valve | D5 |
 | Status LED | LED_BUILTIN |
 
 ## Firmware Setup
@@ -53,9 +56,14 @@ pio device monitor
 See [schemas/mqtt_topics.md](schemas/mqtt_topics.md) for the full schema.
 
 Quick reference:
-- **Telemetry**: `irrigation/zone/<id>/telemetry` — VWC, valve state, runtime counters, fault reason
-- **Commands**: `irrigation/zone/<id>/command` — `pulse`, `close`, `clear_fault`, `configure`
-- **Status**: `irrigation/zone/<id>/status` — `online` / `offline` (retained, LWT)
+
+| Topic | Direction | Content |
+|---|---|---|
+| `irrigation/sensor/<id>/telemetry` | Device → HA | VWC reading per sensor |
+| `irrigation/sensor/<id>/config` | HA → Device | Per-sensor dry threshold (`resume_vwc`) |
+| `irrigation/valve/telemetry` | Device → HA | Valve state, runtime counters, fault |
+| `irrigation/valve/command` | HA → Device | `pulse`, `close`, `clear_fault`, `configure` |
+| `irrigation/valve/status` | Device → HA | `online` / `offline` (retained, LWT) |
 
 ## Safety Limits (hard-coded, never overridden by MQTT)
 
@@ -70,7 +78,7 @@ Quick reference:
 ## Home Assistant Integration
 
 See [homeassistant/packages/irrigation.yaml](homeassistant/packages/irrigation.yaml) for a
-ready-to-use HA package that defines sensors, binary sensors, buttons, input helpers, and automations for both zones.
+ready-to-use HA package defining sensors, binary sensors, buttons, input helpers, and automations.
 
 **To enable the package**, add this to your `configuration.yaml`:
 
@@ -87,10 +95,11 @@ and restart HA.
 
 A Lovelace dashboard YAML is maintained in the project. It provides:
 
-- **Moisture history graph** — 48-hour VWC trend for all zones
-- **Current moisture glance** — live VWC reading per zone
-- **Per-zone controls** — sliders for dry threshold (`resume_vwc`), target VWC, pulse on-time, and settle wait; changes are automatically published to the firmware via MQTT
-- **Measurement interval controls** — sensor read and telemetry publish intervals (requires firmware update to take effect)
+- **Moisture history graph** — 48-hour VWC trend for all sensors
+- **Current moisture glance** — live VWC reading per sensor
+- **Per-sensor dry threshold sliders** — `resume_vwc` changes are automatically published to the firmware via MQTT
+- **Valve timing controls** — pulse duration and settle wait sliders (shared across all sensors)
+- **Measurement interval controls** — sensor read and telemetry publish intervals
 
 ### Sending commands from HA
 
@@ -98,15 +107,28 @@ A Lovelace dashboard YAML is maintained in the project. It provides:
 # Trigger a pulse
 service: mqtt.publish
 data:
-  topic: irrigation/zone/0/command
+  topic: irrigation/valve/command
   payload: '{"action": "pulse"}'
 
-# Update parameters (clamped to hard safety limits on the controller)
+# Update valve timing (clamped to hard safety limits on the controller)
 service: mqtt.publish
 data:
-  topic: irrigation/zone/0/command
-  payload: '{"action": "configure", "pulse_duration_s": 30, "settle_duration_s": 300, "target_vwc": 40.0, "resume_vwc": 25.0}'
+  topic: irrigation/valve/command
+  payload: '{"action": "configure", "pulse_duration_s": 30, "settle_duration_s": 300}'
+
+# Update sensor dry threshold
+service: mqtt.publish
+data:
+  topic: irrigation/sensor/0/config
+  payload: '{"resume_vwc": 25.0}'
 ```
+
+## Scaling to More Sensors
+
+1. Increment `SENSOR_COUNT` in `firmware/src/config.h`.
+2. Add a `Pin::SENSOR_N` constant and extend `SENSOR_PINS` in `main.cpp`.
+3. Re-flash the firmware.
+4. Add corresponding sensor entity entries in `homeassistant/packages/irrigation.yaml`.
 
 ## Project Structure
 
@@ -117,12 +139,12 @@ firmware/
     config.h              pins, topics, safety limits, defaults
     secrets.h             WiFi + MQTT credentials (gitignored)
     secrets.h.example     template — commit this, not secrets.h
-    log.h                 Serial logging macros (drop-in for esp_log)
+    log.h                 Serial logging macros
     main.cpp              setup/loop, auto-trigger, failsafe
     sensors/
       VH400.h/.cpp        ADC read + Vegetronix piecewise calibration
     irrigation/
-      ZoneController.h/.cpp  pulse/settle state machine + safety enforcement
+      ValveController.h/.cpp  pulse/settle state machine + safety enforcement
     mqtt/
       MqttManager.h/.cpp  MQTT connect/reconnect, pub/sub, JSON parsing
 schemas/

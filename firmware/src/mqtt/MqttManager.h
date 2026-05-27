@@ -6,19 +6,28 @@
 #include <functional>
 #include "../config.h"
 
-// Payload delivered to the command handler.
+// ── Command types ─────────────────────────────────────────────────────────────
+
+enum class MqttCommandTarget : uint8_t {
+  VALVE,   // irrigation/valve/command
+  SENSOR,  // irrigation/sensor/<id>/config
+};
+
 struct MqttCommand {
-  uint8_t   zoneId;
-  JsonDocument* doc;  // owned by MqttManager; valid only during callback
+  MqttCommandTarget target;
+  uint8_t           sensorId;   // valid only when target == SENSOR
+  JsonDocument*     doc;        // owned by MqttManager; valid only during callback
 };
 
 using CommandCallback = std::function<void(const MqttCommand&)>;
+
+// ── MqttManager ───────────────────────────────────────────────────────────────
 
 class MqttManager {
 public:
   MqttManager(const char* broker, uint16_t port,
               const char* user, const char* password,
-              uint8_t zoneCount);
+              uint8_t sensorCount);
 
   void begin(const char* clientId);
 
@@ -32,14 +41,17 @@ public:
 
   void setCommandCallback(CommandCallback cb);
 
-  // Publish sensor + zone telemetry for one zone.
-  void publishTelemetry(uint8_t zoneId, float vwc, bool valveOpen,
-                        uint32_t runtimeTodayS, uint32_t runtimeHourS,
-                        uint32_t pulseCount, const char* state,
-                        const char* faultReason = nullptr);
+  // Publish VWC reading for one sensor zone.
+  void publishSensorTelemetry(uint8_t sensorId, float vwc);
 
-  // Publish zone online/offline status (also used as LWT).
-  void publishStatus(uint8_t zoneId, const char* status);
+  // Publish valve state telemetry.
+  void publishValveTelemetry(bool valveOpen, uint32_t runtimeTodayS,
+                             uint32_t runtimeHourS, uint32_t pulseCount,
+                             const char* state,
+                             const char* faultReason = nullptr);
+
+  // Publish valve online/offline status (also used as LWT).
+  void publishValveStatus(const char* status);
 
 private:
   WiFiClient    _wifiClient;
@@ -50,7 +62,7 @@ private:
   const char*   _user;
   const char*   _password;
   const char*   _clientId;
-  uint8_t       _zoneCount;
+  uint8_t       _sensorCount;
 
   CommandCallback _commandCb;
   unsigned long   _lastConnectedMs;
@@ -60,10 +72,11 @@ private:
 
   bool reconnect();
   void subscribeAll();
-  void buildTopic(char* buf, size_t bufLen,
-                  uint8_t zoneId, const char* suffix) const;
 
-  // Static trampoline for PubSubClient callback
+  // Topic builders
+  void sensorTopic(char* buf, size_t len, uint8_t sensorId, const char* suffix) const;
+  void valveTopic (char* buf, size_t len, const char* suffix) const;
+
   static void onMqttMessage(char* topic, byte* payload, unsigned int length);
   static MqttManager* _instance;
 

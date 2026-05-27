@@ -5,31 +5,37 @@
 #include "config.h"
 #include "secrets.h"
 #include "sensors/VH400.h"
-#include "irrigation/ZoneController.h"
+#include "irrigation/ValveController.h"
 #include "mqtt/MqttManager.h"
 
 static const char* TAG = "Main";
 
 // ── Hardware objects ──────────────────────────────────────────────────────────
 
-VH400 sensors[ZONE_COUNT] = {
-  VH400(Pin::SENSOR_ZONE_0),
-  VH400(Pin::SENSOR_ZONE_1),
+// Sensor pins ordered to match their index (0 = A0, 1 = A1, …)
+static constexpr uint8_t SENSOR_PINS[SENSOR_COUNT] = {
+  Pin::SENSOR_0,
+  Pin::SENSOR_1,
 };
 
-ZoneController zones[ZONE_COUNT] = {
-  ZoneController(Pin::VALVE_ZONE_0, 0),
-  ZoneController(Pin::VALVE_ZONE_1, 1),
+VH400          sensors[SENSOR_COUNT] = {
+  VH400(Pin::SENSOR_0),
+  VH400(Pin::SENSOR_1),
 };
 
-MqttManager mqtt(MQTT_BROKER, MQTT_PORT, MQTT_USER, MQTT_PASSWORD, ZONE_COUNT);
+// Per-sensor dry threshold (overridable via MQTT sensor config).
+float sensorResumeVWC[SENSOR_COUNT];
+
+ValveController valve(Pin::VALVE);
+
+MqttManager mqtt(MQTT_BROKER, MQTT_PORT, MQTT_USER, MQTT_PASSWORD, SENSOR_COUNT);
 
 // ── Timers ────────────────────────────────────────────────────────────────────
 
-unsigned long lastSensorReadMs   = 0;
-unsigned long lastTelemetryMs    = 0;
+unsigned long lastSensorReadMs = 0;
+unsigned long lastTelemetryMs  = 0;
 
-float latestVWC[ZONE_COUNT] = { -1.0f, -1.0f };
+float latestVWC[SENSOR_COUNT];
 
 // ── WiFi ──────────────────────────────────────────────────────────────────────
 
@@ -52,64 +58,69 @@ void connectWiFi() {
 
 // ── MQTT command handler ──────────────────────────────────────────────────────
 
-static const char* zoneStateName(ZoneState s) {
+static const char* valveStateName(ValveState s) {
   switch (s) {
-    case ZoneState::IDLE:     return "idle";
-    case ZoneState::PULSING:  return "pulsing";
-    case ZoneState::SETTLING: return "settling";
-    case ZoneState::FAULT:    return "fault";
-    default:                  return "unknown";
+    case ValveState::IDLE:     return "idle";
+    case ValveState::PULSING:  return "pulsing";
+    case ValveState::SETTLING: return "settling";
+    case ValveState::FAULT:    return "fault";
+    default:                   return "unknown";
   }
 }
 
 void onCommand(const MqttCommand& cmd) {
-  uint8_t z = cmd.zoneId;
   JsonDocument& doc = *cmd.doc;
-  const char* action = doc["action"] | "";
 
-  LOG_I(TAG, "Command zone %d: %s", z, action);
+  if (cmd.target == MqttCommandTarget::VALVE) {
+    const char* action = doc["action"] | "";
+    LOG_I(TAG, "Valve command: %s", action);
 
-  if (strcmp(action, "pulse") == 0) {
-    if (!zones[z].requestPulse()) {
-      LOG_W(TAG, "Zone %d pulse request denied", z);
+    if (strcmp(action, "pulse") == 0) {
+      if (!valve.requestPulse()) {
+        LOG_W(TAG, "Valve pulse request denied");
+      }
+
+    } else if (strcmp(action, "close") == 0) {
+      valve.forceClose();
+
+    } else if (strcmp(action, "clear_fault") == 0) {
+      valve.clearFault();
+
+    } else if (strcmp(action, "configure") == 0) {
+      ValveParams p = valve.params();
+      if (doc["pulse_duration_s"].is<uint16_t>())  p.pulseDurationS  = doc["pulse_duration_s"];
+      if (doc["settle_duration_s"].is<uint16_t>()) p.settleDurationS = doc["settle_duration_s"];
+      valve.setParams(p);
+      LOG_I(TAG, "Valve params updated");
+
+    } else {
+      LOG_W(TAG, "Unknown valve action: %s", action);
     }
 
-  } else if (strcmp(action, "close") == 0) {
-    zones[z].forceClose();
-
-  } else if (strcmp(action, "clear_fault") == 0) {
-    zones[z].clearFault();
-
-  } else if (strcmp(action, "configure") == 0) {
-    // AI/HA sends recommended parameter updates.
-    // ZoneController clamps everything to hard safety limits internally.
-    PulseParams p = zones[z].params();
-    if (doc["pulse_duration_s"].is<uint16_t>())  p.pulseDurationS  = doc["pulse_duration_s"];
-    if (doc["settle_duration_s"].is<uint16_t>()) p.settleDurationS = doc["settle_duration_s"];
-    if (doc["target_vwc"].is<float>())           p.targetVWC       = doc["target_vwc"];
-    if (doc["resume_vwc"].is<float>())           p.resumeVWC       = doc["resume_vwc"];
-    zones[z].setParams(p);
-    LOG_I(TAG, "Zone %d params updated", z);
-
-  } else {
-    LOG_W(TAG, "Unknown action: %s", action);
+  } else if (cmd.target == MqttCommandTarget::SENSOR) {
+    uint8_t s = cmd.sensorId;
+    if (doc["resume_vwc"].is<float>()) {
+      sensorResumeVWC[s] = doc["resume_vwc"];
+      LOG_I(TAG, "Sensor %d resumeVWC updated to %.1f", s, sensorResumeVWC[s]);
+    }
   }
 }
 
 // ── Automated pulse trigger ───────────────────────────────────────────────────
-// Simple moisture-threshold trigger; HA/AI layer can also push explicit pulses.
+// Fires if ANY sensor reads below its dry threshold and the valve is idle.
 
 void checkAutoTrigger() {
-  for (uint8_t z = 0; z < ZONE_COUNT; z++) {
-    float vwc = latestVWC[z];
+  if (!valve.canOpen()) return;
+
+  for (uint8_t s = 0; s < SENSOR_COUNT; s++) {
+    float vwc = latestVWC[s];
     if (vwc < 0) continue;  // no reading yet
 
-    ZoneState state = zones[z].telemetry().state;
-    const PulseParams& p = zones[z].params();
-
-    if (state == ZoneState::IDLE && vwc < p.resumeVWC) {
-      LOG_I(TAG, "Zone %d auto-pulse: VWC %.1f < resume %.1f", z, vwc, p.resumeVWC);
-      zones[z].requestPulse();
+    if (vwc < sensorResumeVWC[s]) {
+      LOG_I(TAG, "Auto-pulse: sensor %d VWC %.1f < resume %.1f",
+               s, vwc, sensorResumeVWC[s]);
+      valve.requestPulse();
+      return;  // one pulse request is enough
     }
   }
 }
@@ -119,11 +130,10 @@ void checkAutoTrigger() {
 void checkFailsafe() {
   uint32_t disconnectedS = mqtt.secondsSinceConnected();
   if (disconnectedS >= Safety::FAILSAFE_DISCONNECT_S) {
-    for (uint8_t z = 0; z < ZONE_COUNT; z++) {
-      if (zones[z].telemetry().valveOpen) {
-        LOG_E(TAG, "FAILSAFE: MQTT lost %lu s, closing zone %d", disconnectedS, z);
-        zones[z].forceClose();
-      }
+    ValveTelemetry t = valve.telemetry();
+    if (t.valveOpen) {
+      LOG_E(TAG, "FAILSAFE: MQTT lost %lu s, closing valve", disconnectedS);
+      valve.forceClose();
     }
   }
 }
@@ -134,19 +144,24 @@ void setup() {
   Serial.begin(115200);
   while (!Serial) {}
   Serial.println("\n=== Irrigation Controller booting ===");
+
   pinMode(Pin::STATUS_LED, OUTPUT);
 
-  for (uint8_t z = 0; z < ZONE_COUNT; z++) {
-    sensors[z].begin();
-    zones[z].begin();
+  // Initialise per-sensor thresholds to firmware default
+  for (uint8_t s = 0; s < SENSOR_COUNT; s++) {
+    sensorResumeVWC[s] = DefaultParams::RESUME_VWC;
+    latestVWC[s]       = -1.0f;
+    sensors[s].begin();
   }
+
+  valve.begin();
 
   connectWiFi();
 
   mqtt.setCommandCallback(onCommand);
   mqtt.begin(MQTT_CLIENT_ID);
 
-  LOG_I(TAG, "Irrigation controller ready");
+  LOG_I(TAG, "Irrigation controller ready — %d sensor(s), 1 valve", SENSOR_COUNT);
 }
 
 void loop() {
@@ -158,16 +173,14 @@ void loop() {
   // 2 — Read sensors on interval
   if (now - lastSensorReadMs >= Sensor::READ_INTERVAL_MS) {
     lastSensorReadMs = now;
-    for (uint8_t z = 0; z < ZONE_COUNT; z++) {
-      latestVWC[z] = sensors[z].readVWC();
+    for (uint8_t s = 0; s < SENSOR_COUNT; s++) {
+      latestVWC[s] = sensors[s].readVWC();
     }
     checkAutoTrigger();
   }
 
-  // 3 — Tick zone state machines
-  for (uint8_t z = 0; z < ZONE_COUNT; z++) {
-    zones[z].update();
-  }
+  // 3 — Tick valve state machine
+  valve.update();
 
   // 4 — Failsafe check every loop (cheap comparison)
   checkFailsafe();
@@ -175,14 +188,19 @@ void loop() {
   // 5 — Publish telemetry on interval
   if (now - lastTelemetryMs >= TELEMETRY_INTERVAL_MS) {
     lastTelemetryMs = now;
-    for (uint8_t z = 0; z < ZONE_COUNT; z++) {
-      ZoneTelemetry t = zones[z].telemetry();
-      mqtt.publishTelemetry(z, latestVWC[z], t.valveOpen,
-                            t.runtimeTodayS, t.runtimeHourS,
-                            t.pulseCount, zoneStateName(t.state),
-                            t.faultReason);
-      LOG_I(TAG, "tx z%d vwc=%.1f%% %s", z, latestVWC[z], zoneStateName(t.state));
+
+    for (uint8_t s = 0; s < SENSOR_COUNT; s++) {
+      mqtt.publishSensorTelemetry(s, latestVWC[s]);
     }
+
+    ValveTelemetry t = valve.telemetry();
+    mqtt.publishValveTelemetry(t.valveOpen, t.runtimeTodayS, t.runtimeHourS,
+                               t.pulseCount, valveStateName(t.state),
+                               t.faultReason);
+
+    LOG_I(TAG, "valve=%s s0=%.1f%% s1=%.1f%%",
+             valveStateName(t.state), latestVWC[0], latestVWC[1]);
+
     // Blink LED to show we're alive
     digitalWrite(Pin::STATUS_LED, !digitalRead(Pin::STATUS_LED));
   }

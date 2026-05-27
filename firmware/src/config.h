@@ -3,27 +3,32 @@
 
 // ── Hardware ──────────────────────────────────────────────────────────────────
 // VH400 sensors connect to analog input pins.
-// Valves connect through a relay/MOSFET driver; pin is HIGH = valve open.
+// Single solenoid valve connects through a relay/MOSFET driver; HIGH = open.
 
 namespace Pin {
-  constexpr uint8_t SENSOR_ZONE_0  = A0;
-  constexpr uint8_t SENSOR_ZONE_1  = A1;
-  constexpr uint8_t VALVE_ZONE_0   = 5;
-  constexpr uint8_t VALVE_ZONE_1   = 6;
-  constexpr uint8_t STATUS_LED     = LED_BUILTIN;
+  constexpr uint8_t SENSOR_0    = A0;
+  constexpr uint8_t SENSOR_1    = A1;
+  constexpr uint8_t VALVE       = 5;    // single shared valve
+  constexpr uint8_t STATUS_LED  = LED_BUILTIN;
 }
 
-// ── Zones ─────────────────────────────────────────────────────────────────────
-constexpr uint8_t ZONE_COUNT = 2;
+// ── Sensors / zones ───────────────────────────────────────────────────────────
+// SENSOR_COUNT controls how many VH400 probes are read and reported.
+// Adding more sensors: increment this and add a Pin::SENSOR_N entry above.
+constexpr uint8_t SENSOR_COUNT = 2;
 
 // ── MQTT topics ───────────────────────────────────────────────────────────────
-// Full topic: MQTT_ROOT "/zone/" <zoneId> "/" <suffix>
-constexpr const char* MQTT_ROOT              = "irrigation";
-constexpr const char* MQTT_TOPIC_TELEMETRY   = "telemetry";
-constexpr const char* MQTT_TOPIC_COMMAND     = "command";
-constexpr const char* MQTT_TOPIC_STATUS      = "status";
-constexpr const char* MQTT_TOPIC_CONFIG      = "config";   // AI/HA writes params here
-constexpr const char* MQTT_CLIENT_ID         = "irrigation-controller";
+// Sensor telemetry:  MQTT_ROOT "/sensor/" <sensorId> "/telemetry"
+// Sensor config:     MQTT_ROOT "/sensor/" <sensorId> "/config"
+// Valve telemetry:   MQTT_ROOT "/valve/telemetry"
+// Valve command:     MQTT_ROOT "/valve/command"
+// Valve status:      MQTT_ROOT "/valve/status"
+constexpr const char* MQTT_ROOT                  = "irrigation";
+constexpr const char* MQTT_TOPIC_TELEMETRY        = "telemetry";
+constexpr const char* MQTT_TOPIC_COMMAND          = "command";
+constexpr const char* MQTT_TOPIC_STATUS           = "status";
+constexpr const char* MQTT_TOPIC_CONFIG           = "config";
+constexpr const char* MQTT_CLIENT_ID              = "irrigation-controller";
 
 // ── Safety hard limits (never overridden by MQTT/AI) ─────────────────────────
 namespace Safety {
@@ -42,11 +47,12 @@ namespace Sensor {
   constexpr uint16_t ADC_MAX            = 1023;   // 10-bit default resolution
 }
 
-// ── Default pulse parameters (overridable at runtime via MQTT config topic) ───
+// ── Default parameters ────────────────────────────────────────────────────────
 namespace DefaultParams {
+  // Valve timing (overridable via MQTT configure)
   constexpr uint16_t PULSE_DURATION_S   = 30;
   constexpr uint16_t SETTLE_DURATION_S  = 300;
-  constexpr float    TARGET_VWC         = 40.0f;
+  // Per-sensor dry threshold (overridable via MQTT sensor config)
   constexpr float    RESUME_VWC         = 25.0f;
 }
 

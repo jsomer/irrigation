@@ -9,14 +9,14 @@ MqttManager* MqttManager::_instance = nullptr;
 
 MqttManager::MqttManager(const char* broker, uint16_t port,
                          const char* user, const char* password,
-                         uint8_t zoneCount)
+                         uint8_t sensorCount)
   : _mqtt(_wifiClient)
   , _broker(broker)
   , _port(port)
   , _user(user)
   , _password(password)
   , _clientId(nullptr)
-  , _zoneCount(zoneCount)
+  , _sensorCount(sensorCount)
   , _lastConnectedMs(0)
   , _lastReconnectAttemptMs(0)
 {
@@ -59,35 +59,49 @@ uint32_t MqttManager::secondsSinceConnected() {
 
 // ── Publish ───────────────────────────────────────────────────────────────────
 
-void MqttManager::publishTelemetry(uint8_t zoneId, float vwc, bool valveOpen,
-                                   uint32_t runtimeTodayS, uint32_t runtimeHourS,
-                                   uint32_t pulseCount, const char* state,
-                                   const char* faultReason) {
+void MqttManager::publishSensorTelemetry(uint8_t sensorId, float vwc) {
   if (!_mqtt.connected()) return;
 
   char topic[64];
-  buildTopic(topic, sizeof(topic), zoneId, MQTT_TOPIC_TELEMETRY);
+  sensorTopic(topic, sizeof(topic), sensorId, MQTT_TOPIC_TELEMETRY);
 
   JsonDocument doc;
-  doc["zone"]             = zoneId;
-  doc["vwc"]              = serialized(String(vwc, 1));
-  doc["valve_open"]       = valveOpen;
-  doc["runtime_today_s"]  = runtimeTodayS;
-  doc["runtime_hour_s"]   = runtimeHourS;
-  doc["pulse_count"]      = pulseCount;
-  doc["state"]            = state;
-  if (faultReason)        doc["fault_reason"] = faultReason;
-  doc["ts"]               = millis() / 1000UL;
+  doc["sensor"] = sensorId;
+  doc["vwc"]    = serialized(String(vwc, 1));
+  doc["ts"]     = millis() / 1000UL;
+
+  char buf[128];
+  serializeJson(doc, buf, sizeof(buf));
+  _mqtt.publish(topic, buf, false);
+  LOG_D(TAG, "sensor %d telemetry: %s", sensorId, buf);
+}
+
+void MqttManager::publishValveTelemetry(bool valveOpen, uint32_t runtimeTodayS,
+                                        uint32_t runtimeHourS, uint32_t pulseCount,
+                                        const char* state, const char* faultReason) {
+  if (!_mqtt.connected()) return;
+
+  char topic[64];
+  valveTopic(topic, sizeof(topic), MQTT_TOPIC_TELEMETRY);
+
+  JsonDocument doc;
+  doc["valve_open"]      = valveOpen;
+  doc["runtime_today_s"] = runtimeTodayS;
+  doc["runtime_hour_s"]  = runtimeHourS;
+  doc["pulse_count"]     = pulseCount;
+  doc["state"]           = state;
+  if (faultReason)       doc["fault_reason"] = faultReason;
+  doc["ts"]              = millis() / 1000UL;
 
   char buf[256];
   serializeJson(doc, buf, sizeof(buf));
   _mqtt.publish(topic, buf, false);
-  LOG_D(TAG, "telemetry zone %d: %s", zoneId, buf);
+  LOG_D(TAG, "valve telemetry: %s", buf);
 }
 
-void MqttManager::publishStatus(uint8_t zoneId, const char* status) {
+void MqttManager::publishValveStatus(const char* status) {
   char topic[64];
-  buildTopic(topic, sizeof(topic), zoneId, MQTT_TOPIC_STATUS);
+  valveTopic(topic, sizeof(topic), MQTT_TOPIC_STATUS);
   _mqtt.publish(topic, status, true);  // retained
 }
 
@@ -96,19 +110,15 @@ void MqttManager::publishStatus(uint8_t zoneId, const char* status) {
 bool MqttManager::reconnect() {
   LOG_I(TAG, "Connecting to MQTT %s:%d ...", _broker, _port);
 
-  // Build LWT topic for zone 0 (primary zone used for device-level status)
   char lwtTopic[64];
-  buildTopic(lwtTopic, sizeof(lwtTopic), 0, MQTT_TOPIC_STATUS);
+  valveTopic(lwtTopic, sizeof(lwtTopic), MQTT_TOPIC_STATUS);
 
   bool ok = _mqtt.connect(_clientId, _user, _password,
                           lwtTopic, 1, true, "offline");
   if (ok) {
     LOG_I(TAG, "MQTT connected");
     subscribeAll();
-    // Publish online for all zones
-    for (uint8_t z = 0; z < _zoneCount; z++) {
-      publishStatus(z, "online");
-    }
+    publishValveStatus("online");
   } else {
     LOG_W(TAG, "MQTT connect failed, rc=%d", _mqtt.state());
   }
@@ -117,26 +127,31 @@ bool MqttManager::reconnect() {
 
 void MqttManager::subscribeAll() {
   char topic[64];
-  for (uint8_t z = 0; z < _zoneCount; z++) {
-    buildTopic(topic, sizeof(topic), z, MQTT_TOPIC_COMMAND);
-    _mqtt.subscribe(topic);
-    LOG_D(TAG, "Subscribed: %s", topic);
 
-    buildTopic(topic, sizeof(topic), z, MQTT_TOPIC_CONFIG);
+  // Valve command topic
+  valveTopic(topic, sizeof(topic), MQTT_TOPIC_COMMAND);
+  _mqtt.subscribe(topic);
+  LOG_D(TAG, "Subscribed: %s", topic);
+
+  // Per-sensor config topics
+  for (uint8_t s = 0; s < _sensorCount; s++) {
+    sensorTopic(topic, sizeof(topic), s, MQTT_TOPIC_CONFIG);
     _mqtt.subscribe(topic);
     LOG_D(TAG, "Subscribed: %s", topic);
   }
 }
 
-void MqttManager::buildTopic(char* buf, size_t bufLen,
-                              uint8_t zoneId, const char* suffix) const {
-  snprintf(buf, bufLen, "%s/zone/%d/%s", MQTT_ROOT, zoneId, suffix);
+void MqttManager::sensorTopic(char* buf, size_t len,
+                               uint8_t sensorId, const char* suffix) const {
+  snprintf(buf, len, "%s/sensor/%d/%s", MQTT_ROOT, sensorId, suffix);
+}
+
+void MqttManager::valveTopic(char* buf, size_t len, const char* suffix) const {
+  snprintf(buf, len, "%s/valve/%s", MQTT_ROOT, suffix);
 }
 
 void MqttManager::onMqttMessage(char* topic, byte* payload, unsigned int length) {
-  if (_instance) {
-    _instance->handleMessage(topic, payload, length);
-  }
+  if (_instance) _instance->handleMessage(topic, payload, length);
 }
 
 void MqttManager::handleMessage(char* topic, byte* payload, unsigned int length) {
@@ -149,22 +164,27 @@ void MqttManager::handleMessage(char* topic, byte* payload, unsigned int length)
     return;
   }
 
-  // Parse zone ID from topic: "<root>/zone/<id>/<suffix>"
-  int zoneId = -1;
-  char rootPrefix[32];
-  int  zid = 0;
-  char suffix[32];
-  if (sscanf(topic, "%31[^/]/zone/%d/%31s", rootPrefix, &zid, suffix) == 3) {
-    zoneId = zid;
-  }
+  if (!_commandCb) return;
 
-  if (zoneId < 0 || zoneId >= _zoneCount) {
-    LOG_W(TAG, "Unrecognised topic or zone: %s", topic);
+  // irrigation/valve/command
+  char valveCmd[64];
+  valveTopic(valveCmd, sizeof(valveCmd), MQTT_TOPIC_COMMAND);
+  if (strcmp(topic, valveCmd) == 0) {
+    MqttCommand cmd{ .target = MqttCommandTarget::VALVE, .sensorId = 0, .doc = &doc };
+    _commandCb(cmd);
     return;
   }
 
-  if (_commandCb) {
-    MqttCommand cmd{ .zoneId = static_cast<uint8_t>(zoneId), .doc = &doc };
-    _commandCb(cmd);
+  // irrigation/sensor/<id>/config
+  for (uint8_t s = 0; s < _sensorCount; s++) {
+    char sensorCfg[64];
+    sensorTopic(sensorCfg, sizeof(sensorCfg), s, MQTT_TOPIC_CONFIG);
+    if (strcmp(topic, sensorCfg) == 0) {
+      MqttCommand cmd{ .target = MqttCommandTarget::SENSOR, .sensorId = s, .doc = &doc };
+      _commandCb(cmd);
+      return;
+    }
   }
+
+  LOG_W(TAG, "Unrecognised topic: %s", topic);
 }
