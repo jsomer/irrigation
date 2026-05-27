@@ -114,7 +114,7 @@ void checkAutoTrigger() {
 
   for (uint8_t s = 0; s < SENSOR_COUNT; s++) {
     float vwc = latestVWC[s];
-    if (vwc < 0) continue;  // no reading yet
+    if (vwc < 1.0f) continue;  // no reading yet or sensor disconnected (reads ~0 V)
 
     if (vwc < sensorResumeVWC[s]) {
       LOG_I(TAG, "Auto-pulse: sensor %d VWC %.1f < resume %.1f",
