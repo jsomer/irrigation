@@ -18,17 +18,20 @@ namespace Pin {
 constexpr uint8_t SENSOR_COUNT = 2;
 
 // ── MQTT topics ───────────────────────────────────────────────────────────────
-// Sensor telemetry:  MQTT_ROOT "/sensor/" <sensorId> "/telemetry"
-// Sensor config:     MQTT_ROOT "/sensor/" <sensorId> "/config"
-// Valve telemetry:   MQTT_ROOT "/valve/telemetry"
-// Valve command:     MQTT_ROOT "/valve/command"
-// Valve status:      MQTT_ROOT "/valve/status"
-constexpr const char* MQTT_ROOT                  = "irrigation";
-constexpr const char* MQTT_TOPIC_TELEMETRY        = "telemetry";
-constexpr const char* MQTT_TOPIC_COMMAND          = "command";
-constexpr const char* MQTT_TOPIC_STATUS           = "status";
-constexpr const char* MQTT_TOPIC_CONFIG           = "config";
-constexpr const char* MQTT_CLIENT_ID              = "irrigation-controller";
+// Defined as macros so they can be pasted into string literals at compile time,
+// e.g.  MQTT_ROOT "/valve/" MQTT_TOPIC_STATUS  →  "irrigation/valve/status"
+//
+// Sensor telemetry:  MQTT_ROOT "/sensor/<id>/" MQTT_TOPIC_TELEMETRY
+// Sensor config:     MQTT_ROOT "/sensor/<id>/" MQTT_TOPIC_CONFIG
+// Valve telemetry:   MQTT_ROOT "/valve/" MQTT_TOPIC_TELEMETRY
+// Valve command:     MQTT_ROOT "/valve/" MQTT_TOPIC_COMMAND
+// Valve status:      MQTT_ROOT "/valve/" MQTT_TOPIC_STATUS
+#define MQTT_ROOT             "irrigation"
+#define MQTT_TOPIC_TELEMETRY  "telemetry"
+#define MQTT_TOPIC_COMMAND    "command"
+#define MQTT_TOPIC_STATUS     "status"
+#define MQTT_TOPIC_CONFIG     "config"
+#define MQTT_CLIENT_ID        "irrigation-controller"
 
 // ── Safety hard limits (never overridden by MQTT/AI) ─────────────────────────
 namespace Safety {
