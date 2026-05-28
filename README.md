@@ -13,9 +13,10 @@ VH400 Sensors → UNO R4 WiFi → MQTT → Home Assistant (dashboards/history)
                                     UNO R4 WiFi (enforces hard limits)
 ```
 
-**One solenoid valve** is shared across all zones. The valve fires automatically when
-*any* sensor VWC drops below that sensor's configured dry threshold. Moisture
-differences between sensors inform physical sprinkler/soaker-hose positioning.
+**One solenoid valve** is shared across all sensor zones. The valve fires
+automatically when *any* sensor VWC drops below that sensor's configured dry
+threshold. Moisture differences between sensors inform physical
+sprinkler/soaker-hose positioning rather than which valve to open.
 
 ## Hardware
 
@@ -77,8 +78,15 @@ Quick reference:
 
 ## Home Assistant Integration
 
-See [homeassistant/packages/irrigation.yaml](homeassistant/packages/irrigation.yaml) for a
-ready-to-use HA package defining sensors, binary sensors, buttons, input helpers, and automations.
+On every MQTT connect the firmware publishes **MQTT Discovery** configs to
+`homeassistant/<domain>/<id>/config`. HA auto-creates all sensor, binary sensor,
+and button entities and groups them under a single **"Irrigation Controller"**
+device — no manual entity YAML required.
+
+`homeassistant/packages/irrigation.yaml` provides the remaining HA-native
+elements: `input_number` sliders for valve timing and per-sensor dry thresholds,
+formatted template sensors, and automations that push slider changes to the
+firmware via MQTT.
 
 **To enable the package**, add this to your `configuration.yaml`:
 
@@ -88,18 +96,25 @@ homeassistant:
     irrigation: !include packages/irrigation.yaml
 ```
 
-Then copy `homeassistant/packages/irrigation.yaml` into your HA `config/packages/` directory
-and restart HA.
+Then copy `homeassistant/packages/irrigation.yaml` into your HA `config/packages/`
+directory and restart HA.
+
+**Mosquitto add-on settings** (recommended):
+- Start on boot: **on**
+- Watchdog: **on** — auto-restarts the broker if it stops unexpectedly
 
 ### Dashboard
 
-A Lovelace dashboard YAML is maintained in the project. It provides:
+Copy `homeassistant/dashboards/irrigation.yaml` into a new HA dashboard via the
+raw config editor. It provides:
 
 - **Moisture history graph** — 48-hour VWC trend for all sensors
-- **Current moisture glance** — live VWC reading per sensor
-- **Per-sensor dry threshold sliders** — `resume_vwc` changes are automatically published to the firmware via MQTT
-- **Valve timing controls** — pulse duration and settle wait sliders (shared across all sensors)
-- **Measurement interval controls** — sensor read and telemetry publish intervals
+- **Current moisture gauges** — live VWC per sensor (green ≥ 30 %, yellow 20–30 %, red < 20 %)
+- **Valve status** — state, pulse count, runtime today/hour
+- **Manual controls** — Pulse, Force Close, Clear Fault buttons
+- **Valve timing sliders** — pulse duration and settle wait (pushed to firmware automatically)
+- **Dry threshold sliders** — per-sensor `resume_vwc` (pushed to firmware automatically)
+- **Measurement interval display** — sensor read and telemetry publish intervals
 
 ### Sending commands from HA
 
@@ -126,9 +141,11 @@ data:
 ## Scaling to More Sensors
 
 1. Increment `SENSOR_COUNT` in `firmware/src/config.h`.
-2. Add a `Pin::SENSOR_N` constant and extend `SENSOR_PINS` in `main.cpp`.
-3. Re-flash the firmware.
-4. Add corresponding sensor entity entries in `homeassistant/packages/irrigation.yaml`.
+2. Add a `Pin::SENSOR_N` constant and extend `SENSOR_PINS[]` in `firmware/src/main.cpp`.
+3. Re-flash the firmware — MQTT Discovery automatically registers the new sensor entity in HA.
+4. Add a `resume_vwc` input helper and config-push automation for the new sensor in `homeassistant/packages/irrigation.yaml`.
+
+No valve hardware changes are required.
 
 ## Project Structure
 
@@ -136,7 +153,7 @@ data:
 firmware/
   platformio.ini
   src/
-    config.h              pins, topics, safety limits, defaults
+    config.h              pins, #define MQTT topics, safety limits, defaults
     secrets.h             WiFi + MQTT credentials (gitignored)
     secrets.h.example     template — commit this, not secrets.h
     log.h                 Serial logging macros
@@ -146,12 +163,14 @@ firmware/
     irrigation/
       ValveController.h/.cpp  pulse/settle state machine + safety enforcement
     mqtt/
-      MqttManager.h/.cpp  MQTT connect/reconnect, pub/sub, JSON parsing
+      MqttManager.h/.cpp  MQTT connect/reconnect, pub/sub, discovery, JSON
 schemas/
   mqtt_topics.md          MQTT topic reference + JSON schemas
 homeassistant/
   packages/
-    irrigation.yaml       HA package: sensors, buttons, input helpers, automations
+    irrigation.yaml       HA package: input helpers, template sensors, automations
+  dashboards/
+    irrigation.yaml       Lovelace dashboard YAML
 docs/
   theory_of_operation.md  detailed firmware and protocol design notes
 ```
