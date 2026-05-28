@@ -41,6 +41,10 @@ public:
 
   void setCommandCallback(CommandCallback cb);
 
+  // Publish MQTT Discovery configs for all entities.
+  // Called automatically after each successful connect.
+  void publishDiscovery();
+
   // Publish VWC reading for one sensor zone.
   void publishSensorTelemetry(uint8_t sensorId, float vwc);
 
@@ -76,6 +80,19 @@ private:
   // Topic builders
   void sensorTopic(char* buf, size_t len, uint8_t sensorId, const char* suffix) const;
   void valveTopic (char* buf, size_t len, const char* suffix) const;
+
+  // Discovery helpers
+  void discoverSensorVwc(uint8_t sensorId);
+  void discoverValveOpen();
+  void discoverValveState();
+  void discoverValveCounter(const char* name, const char* objectId,
+                            const char* field, const char* stateClass,
+                            const char* unit, const char* icon);
+  void discoverControllerOnline();
+  void discoverButton(const char* name, const char* objectId,
+                      const char* action, const char* icon);
+  void publishDiscoveryMsg(const char* domain, const char* objectId,
+                           const char* payload);
 
   static void onMqttMessage(char* topic, byte* payload, unsigned int length);
   static MqttManager* _instance;

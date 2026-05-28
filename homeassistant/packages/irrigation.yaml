@@ -1,6 +1,10 @@
 # ── Irrigation Package ────────────────────────────────────────────────────────
 # Single solenoid valve + N moisture sensors (UNO R4 WiFi via MQTT)
 #
+# MQTT entities (sensors, binary sensors, buttons) are registered automatically
+# via MQTT Discovery published by the firmware on each connect.
+# This package only contains HA-native helpers and automations.
+#
 # Topic structure
 #   irrigation/sensor/<id>/telemetry  →  per-sensor VWC readings
 #   irrigation/sensor/<id>/config     ←  per-sensor dry threshold
@@ -9,128 +13,9 @@
 #   irrigation/valve/status           →  online / offline (LWT, retained)
 # ─────────────────────────────────────────────────────────────────────────────
 
-# ── MQTT sensors ──────────────────────────────────────────────────────────────
-mqtt:
-  sensor:
-    # -- Sensor 0 VWC --
-    - name: "Irrigation Sensor 0 VWC"
-      unique_id: irrigation_sensor0_vwc
-      state_topic: "irrigation/sensor/0/telemetry"
-      value_template: "{{ value_json.vwc | float | round(1) }}"
-      unit_of_measurement: "%"
-      state_class: measurement
-      icon: mdi:water-percent
-      availability_topic: "irrigation/valve/status"
-      payload_available: "online"
-      payload_not_available: "offline"
-
-    # -- Sensor 1 VWC --
-    - name: "Irrigation Sensor 1 VWC"
-      unique_id: irrigation_sensor1_vwc
-      state_topic: "irrigation/sensor/1/telemetry"
-      value_template: "{{ value_json.vwc | float | round(1) }}"
-      unit_of_measurement: "%"
-      state_class: measurement
-      icon: mdi:water-percent
-      availability_topic: "irrigation/valve/status"
-      payload_available: "online"
-      payload_not_available: "offline"
-
-    # -- Valve runtime counters --
-    - name: "Irrigation Valve Runtime Today"
-      unique_id: irrigation_valve_runtime_today
-      state_topic: "irrigation/valve/telemetry"
-      value_template: "{{ value_json.runtime_today_s | int }}"
-      unit_of_measurement: "s"
-      state_class: total_increasing
-      icon: mdi:timer-outline
-      availability_topic: "irrigation/valve/status"
-      payload_available: "online"
-      payload_not_available: "offline"
-
-    - name: "Irrigation Valve Runtime Hour"
-      unique_id: irrigation_valve_runtime_hour
-      state_topic: "irrigation/valve/telemetry"
-      value_template: "{{ value_json.runtime_hour_s | int }}"
-      unit_of_measurement: "s"
-      state_class: measurement
-      icon: mdi:timer-outline
-      availability_topic: "irrigation/valve/status"
-      payload_available: "online"
-      payload_not_available: "offline"
-
-    - name: "Irrigation Valve Pulse Count"
-      unique_id: irrigation_valve_pulse_count
-      state_topic: "irrigation/valve/telemetry"
-      value_template: "{{ value_json.pulse_count | int }}"
-      state_class: total_increasing
-      icon: mdi:counter
-      availability_topic: "irrigation/valve/status"
-      payload_available: "online"
-      payload_not_available: "offline"
-
-    - name: "Irrigation Valve State"
-      unique_id: irrigation_valve_state_str
-      state_topic: "irrigation/valve/telemetry"
-      value_template: "{{ value_json.state }}"
-      icon: mdi:valve
-      availability_topic: "irrigation/valve/status"
-      payload_available: "online"
-      payload_not_available: "offline"
-
-  binary_sensor:
-    # -- Valve open/closed --
-    - name: "Irrigation Valve"
-      unique_id: irrigation_valve
-      state_topic: "irrigation/valve/telemetry"
-      value_template: "{{ value_json.valve_open }}"
-      payload_on: "true"
-      payload_off: "false"
-      device_class: opening
-      availability_topic: "irrigation/valve/status"
-      payload_available: "online"
-      payload_not_available: "offline"
-
-    # -- Controller online --
-    - name: "Irrigation Controller Online"
-      unique_id: irrigation_controller_online
-      state_topic: "irrigation/valve/status"
-      payload_on: "online"
-      payload_off: "offline"
-      device_class: connectivity
-
-  # -- Manual control buttons --
-  button:
-    - name: "Irrigation Valve Pulse"
-      unique_id: irrigation_valve_pulse_btn
-      command_topic: "irrigation/valve/command"
-      payload_press: '{"action":"pulse"}'
-      availability_topic: "irrigation/valve/status"
-      payload_available: "online"
-      payload_not_available: "offline"
-      icon: mdi:water
-
-    - name: "Irrigation Valve Close"
-      unique_id: irrigation_valve_close_btn
-      command_topic: "irrigation/valve/command"
-      payload_press: '{"action":"close"}'
-      availability_topic: "irrigation/valve/status"
-      payload_available: "online"
-      payload_not_available: "offline"
-      icon: mdi:valve-closed
-
-    - name: "Irrigation Clear Fault"
-      unique_id: irrigation_valve_clear_fault_btn
-      command_topic: "irrigation/valve/command"
-      payload_press: '{"action":"clear_fault"}'
-      availability_topic: "irrigation/valve/status"
-      payload_available: "online"
-      payload_not_available: "offline"
-      icon: mdi:alert-remove-outline
-
 # ── Input helpers ──────────────────────────────────────────────────────────────
 input_number:
-  # Valve timing
+  # Valve timing — changes are pushed to firmware via automations below
   irrigation_pulse_duration:
     name: "Pulse Duration"
     min: 5
@@ -149,7 +34,7 @@ input_number:
     unit_of_measurement: "s"
     icon: mdi:timer-sand
 
-  # Per-sensor dry thresholds
+  # Per-sensor dry thresholds — changes are pushed to firmware via automations below
   irrigation_sensor0_resume_vwc:
     name: "Sensor 0 Resume VWC"
     min: 5
@@ -168,7 +53,7 @@ input_number:
     unit_of_measurement: "%"
     icon: mdi:water-alert-outline
 
-  # Telemetry intervals (sent to firmware via configure)
+  # Display-only interval indicators (firmware values are compile-time constants)
   irrigation_sensor_interval:
     name: "Sensor Read Interval"
     min: 2
@@ -202,7 +87,6 @@ template:
           {% set s = states('input_number.irrigation_settle_duration') | int(0) %}
           {{ s // 60 }}m {{ '%02d' % (s % 60) }}s
 
-
 # ── Automations ────────────────────────────────────────────────────────────────
 automation:
   # -- Alerts --
@@ -210,7 +94,7 @@ automation:
     id: irrigation_valve_fault_alert
     trigger:
       - platform: state
-        entity_id: sensor.irrigation_valve_state_str
+        entity_id: sensor.irrigation_valve_state
         to: "fault"
     action:
       - service: persistent_notification.create
@@ -231,7 +115,7 @@ automation:
           title: "Irrigation Offline"
           message: "Controller has been offline for 2 minutes."
 
-  # -- Valve configure on slider change --
+  # -- Valve timing: push slider changes to firmware --
   - alias: "Irrigation Apply Valve Config"
     id: irrigation_apply_valve_config
     mode: restart
@@ -250,7 +134,7 @@ automation:
              "pulse_duration_s":{{ states('input_number.irrigation_pulse_duration') | int }},
              "settle_duration_s":{{ states('input_number.irrigation_settle_duration') | int }}}
 
-  # -- Sensor 0 dry threshold --
+  # -- Sensor dry thresholds: push slider changes to firmware --
   - alias: "Irrigation Apply Sensor 0 Config"
     id: irrigation_apply_sensor0_config
     mode: restart
@@ -265,7 +149,6 @@ automation:
           payload: >-
             {"resume_vwc":{{ states('input_number.irrigation_sensor0_resume_vwc') | float }}}
 
-  # -- Sensor 1 dry threshold --
   - alias: "Irrigation Apply Sensor 1 Config"
     id: irrigation_apply_sensor1_config
     mode: restart
