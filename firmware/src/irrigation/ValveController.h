@@ -2,6 +2,44 @@
 #include <Arduino.h>
 #include "../config.h"
 
+// ── Error codes ───────────────────────────────────────────────────────────────
+// Structured codes included in valve telemetry; "none" when no fault.
+//
+//  E001  Hard pulse-duration safety limit hit during an active pulse
+//  E002  Hourly runtime budget exhausted before pulse could complete
+//  E003  Daily runtime budget exhausted before pulse could start
+//  E004  Pulse request denied (already open, or in fault/settling state)
+
+enum class ErrorCode : uint8_t {
+  NONE           = 0,
+  MAX_PULSE_TIME = 1,   // E001
+  HOURLY_LIMIT   = 2,   // E002
+  DAILY_LIMIT    = 3,   // E003
+  PULSE_DENIED   = 4,   // E004
+};
+
+inline const char* errorCodeStr(ErrorCode c) {
+  switch (c) {
+    case ErrorCode::MAX_PULSE_TIME: return "E001";
+    case ErrorCode::HOURLY_LIMIT:   return "E002";
+    case ErrorCode::DAILY_LIMIT:    return "E003";
+    case ErrorCode::PULSE_DENIED:   return "E004";
+    default:                        return "none";
+  }
+}
+
+inline const char* errorCodeDesc(ErrorCode c) {
+  switch (c) {
+    case ErrorCode::MAX_PULSE_TIME: return "Pulse exceeded 120 s hard limit";
+    case ErrorCode::HOURLY_LIMIT:   return "Hourly runtime limit reached (600 s/hr)";
+    case ErrorCode::DAILY_LIMIT:    return "Daily runtime limit reached (3600 s/day)";
+    case ErrorCode::PULSE_DENIED:   return "Pulse request denied";
+    default:                        return "No fault";
+  }
+}
+
+// ── Valve state machine ───────────────────────────────────────────────────────
+
 enum class ValveState : uint8_t {
   IDLE,       // valve closed, waiting for trigger
   PULSING,    // valve open, counting down pulse duration
@@ -20,6 +58,7 @@ struct ValveTelemetry {
   uint32_t    runtimeTodayS;
   uint32_t    runtimeHourS;
   uint32_t    pulseCount;
+  ErrorCode   errorCode;    // NONE when state != FAULT
   const char* faultReason;  // nullptr when state != FAULT
 };
 
@@ -52,9 +91,10 @@ public:
   bool canOpen() const;
 
 private:
-  uint8_t    _pin;
-  ValveState _state;
+  uint8_t     _pin;
+  ValveState  _state;
   ValveParams _params;
+  ErrorCode   _errorCode;
 
   bool          _valveOpen;
   unsigned long _pulseStartMs;
@@ -70,7 +110,7 @@ private:
 
   void openValve();
   void closeValve();
-  void enterFault(const char* reason);
+  void enterFault(ErrorCode code, const char* reason);
   void tickTimeWindows();
 
   uint32_t currentPulseRuntimeS() const;

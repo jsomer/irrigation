@@ -196,7 +196,7 @@ void loop() {
     ValveTelemetry t = valve.telemetry();
     mqtt.publishValveTelemetry(t.valveOpen, t.runtimeTodayS, t.runtimeHourS,
                                t.pulseCount, valveStateName(t.state),
-                               t.faultReason);
+                               errorCodeStr(t.errorCode), t.faultReason);
 
     LOG_I(TAG, "valve=%s s0=%.1f%% s1=%.1f%%",
              valveStateName(t.state), latestVWC[0], latestVWC[1]);

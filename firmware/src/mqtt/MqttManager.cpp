@@ -102,6 +102,8 @@ void MqttManager::publishDiscovery() {
                        "pulse_count", "total_increasing", "",
                        "mdi:counter");
 
+  discoverValveErrorCode();
+
   discoverButton("Irrigation Valve Pulse",  "irrigation_valve_pulse",
                  "pulse",       "mdi:water");
   discoverButton("Irrigation Valve Close",  "irrigation_valve_close",
@@ -218,6 +220,24 @@ void MqttManager::discoverValveCounter(const char* name, const char* objectId,
   publishDiscoveryMsg("sensor", objectId, payload);
 }
 
+void MqttManager::discoverValveErrorCode() {
+  char payload[600];
+  snprintf(payload, sizeof(payload),
+    "{"
+      "\"name\":\"Irrigation Error Code\","
+      "\"object_id\":\"irrigation_error_code\","
+      "\"unique_id\":\"irrigation_error_code\","
+      "\"state_topic\":\"" MQTT_ROOT "/valve/" MQTT_TOPIC_TELEMETRY "\","
+      "\"value_template\":\"{{ value_json.error_code }}\","
+      "\"icon\":\"mdi:alert-circle-outline\","
+      "%s,"
+      "%s"
+    "}",
+    AVAIL_BLOCK, DEVICE_BLOCK);
+
+  publishDiscoveryMsg("sensor", "irrigation_error_code", payload);
+}
+
 void MqttManager::discoverButton(const char* name, const char* objectId,
                                  const char* action, const char* icon) {
   // payload_press is a JSON string embedded inside the outer JSON object.
@@ -278,7 +298,9 @@ void MqttManager::publishSensorTelemetry(uint8_t sensorId, float vwc) {
 
 void MqttManager::publishValveTelemetry(bool valveOpen, uint32_t runtimeTodayS,
                                         uint32_t runtimeHourS, uint32_t pulseCount,
-                                        const char* state, const char* faultReason) {
+                                        const char* state,
+                                        const char* errorCode,
+                                        const char* faultReason) {
   if (!_mqtt.connected()) return;
 
   char topic[64];
@@ -290,6 +312,7 @@ void MqttManager::publishValveTelemetry(bool valveOpen, uint32_t runtimeTodayS,
   doc["runtime_hour_s"]  = runtimeHourS;
   doc["pulse_count"]     = pulseCount;
   doc["state"]           = state;
+  doc["error_code"]      = errorCode ? errorCode : "none";
   if (faultReason)       doc["fault_reason"] = faultReason;
   doc["ts"]              = millis() / 1000UL;
 

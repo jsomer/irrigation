@@ -43,6 +43,26 @@ views:
               yellow: 20
               red: 0
 
+      # ── Fault Alert (only visible when an error code is active) ────────────
+      - type: conditional
+        conditions:
+          - condition: state
+            entity: sensor.irrigation_controller_irrigation_error_code
+            state_not: "none"
+        card:
+          type: markdown
+          content: >
+            ## ⚠ Valve Fault: {{ states('sensor.irrigation_controller_irrigation_error_code') }}
+
+            | Code | Meaning |
+            |------|---------|
+            | E001 | Pulse exceeded 120 s hard limit |
+            | E002 | Hourly runtime limit reached (600 s/hr) |
+            | E003 | Daily runtime limit reached (3600 s/day) |
+            | E004 | Pulse request denied |
+
+            Use the **Clear Fault** button in Manual Controls to resume operation.
+
       # ── Zone & Pulsing Status ───────────────────────────────────────────────
       - type: markdown
         title: Zone & Pulsing Status
@@ -69,6 +89,8 @@ views:
             name: Valve
           - entity: sensor.irrigation_controller_irrigation_valve_state
             name: State
+          - entity: sensor.irrigation_controller_irrigation_error_code
+            name: Error Code
           - entity: sensor.irrigation_pulse_decision
             name: Pulsing Decision
           - type: attribute

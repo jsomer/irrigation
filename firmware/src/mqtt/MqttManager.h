@@ -52,6 +52,7 @@ public:
   void publishValveTelemetry(bool valveOpen, uint32_t runtimeTodayS,
                              uint32_t runtimeHourS, uint32_t pulseCount,
                              const char* state,
+                             const char* errorCode   = "none",
                              const char* faultReason = nullptr);
 
   // Publish valve online/offline status (also used as LWT).
@@ -88,6 +89,7 @@ private:
   void discoverValveCounter(const char* name, const char* objectId,
                             const char* field, const char* stateClass,
                             const char* unit, const char* icon);
+  void discoverValveErrorCode();
   void discoverControllerOnline();
   void discoverButton(const char* name, const char* objectId,
                       const char* action, const char* icon);

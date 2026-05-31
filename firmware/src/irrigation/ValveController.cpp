@@ -6,6 +6,7 @@ static const char* TAG = "ValveController";
 ValveController::ValveController(uint8_t valvePin)
   : _pin(valvePin)
   , _state(ValveState::IDLE)
+  , _errorCode(ErrorCode::NONE)
   , _valveOpen(false)
   , _pulseStartMs(0)
   , _settleStartMs(0)
@@ -32,10 +33,21 @@ bool ValveController::requestPulse() {
     LOG_W(TAG, "Pulse request ignored: state=%d", (int)_state);
     return false;
   }
-  if (!canOpen()) {
-    enterFault("safety limit exceeded");
+
+  // Check each safety limit individually to produce a precise error code.
+  if (_runtimeHourS >= Safety::MAX_RUNTIME_HOUR_S) {
+    enterFault(ErrorCode::HOURLY_LIMIT, "hourly runtime limit exceeded");
     return false;
   }
+  if (_runtimeTodayS >= Safety::MAX_RUNTIME_DAY_S) {
+    enterFault(ErrorCode::DAILY_LIMIT, "daily runtime limit exceeded");
+    return false;
+  }
+  if (!canOpen()) {
+    enterFault(ErrorCode::PULSE_DENIED, "pulse request denied");
+    return false;
+  }
+
   openValve();
   _pulseStartMs = millis();
   _state = ValveState::PULSING;
@@ -54,8 +66,9 @@ void ValveController::forceClose() {
 
 void ValveController::clearFault() {
   if (_state == ValveState::FAULT) {
+    _errorCode   = ErrorCode::NONE;
     _faultReason = nullptr;
-    _state = ValveState::IDLE;
+    _state       = ValveState::IDLE;
     LOG_I(TAG, "Fault cleared");
   }
 }
@@ -86,7 +99,7 @@ void ValveController::update() {
       if (elapsed >= Safety::MAX_PULSE_DURATION_S) {
         LOG_W(TAG, "Hard pulse limit hit (%d s)", elapsed);
         closeValve();
-        enterFault("max pulse duration exceeded");
+        enterFault(ErrorCode::MAX_PULSE_TIME, "pulse exceeded 120 s hard limit");
         break;
       }
 
@@ -117,13 +130,15 @@ void ValveController::update() {
 }
 
 ValveTelemetry ValveController::telemetry() const {
+  bool inFault = (_state == ValveState::FAULT);
   return {
     .state          = _state,
     .valveOpen      = _valveOpen,
     .runtimeTodayS  = _runtimeTodayS,
     .runtimeHourS   = _runtimeHourS,
     .pulseCount     = _pulseCount,
-    .faultReason    = (_state == ValveState::FAULT) ? _faultReason : nullptr,
+    .errorCode      = inFault ? _errorCode   : ErrorCode::NONE,
+    .faultReason    = inFault ? _faultReason : nullptr,
   };
 }
 
@@ -154,11 +169,12 @@ void ValveController::closeValve() {
   }
 }
 
-void ValveController::enterFault(const char* reason) {
+void ValveController::enterFault(ErrorCode code, const char* reason) {
   closeValve();
-  _state = ValveState::FAULT;
+  _state       = ValveState::FAULT;
+  _errorCode   = code;
   _faultReason = reason;
-  LOG_E(TAG, "FAULT: %s", reason);
+  LOG_E(TAG, "FAULT [%s]: %s", errorCodeStr(code), reason);
 }
 
 void ValveController::tickTimeWindows() {
