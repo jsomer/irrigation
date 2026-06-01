@@ -306,12 +306,16 @@ automation:
              "pulse_duration_s":{{ states('input_number.irrigation_pulse_duration') | int }},
              "settle_duration_s":{{ states('input_number.irrigation_settle_duration') | int }}}
 
-  # -- Neutralise the firmware's on-device auto-trigger so HA is authoritative --
-  # Pushing resume_vwc = 0.0 means no real reading can ever cross the threshold,
-  # so the firmware never self-pulses. Re-asserted whenever the controller
-  # (re)connects, in case it rebooted back to its compiled-in defaults.
-  - alias: "Irrigation Disable Firmware Auto-Trigger"
-    id: irrigation_disable_fw_autotrigger
+  # -- Sync firmware state on (re)connect ──────────────────────────────────────
+  # Fired on HA start and every time the controller comes online, so a firmware
+  # reboot always ends up with the same config as the HA sliders.
+  #
+  # 1. Neutralise the on-device auto-trigger (resume_vwc = 0.0 so no real
+  #    reading ever crosses it; HA drives the valve exclusively).
+  # 2. Push the current valve timing sliders so firmware defaults can't drift
+  #    from what the user has set in the dashboard.
+  - alias: "Irrigation Sync Firmware On Connect"
+    id: irrigation_sync_fw_on_connect
     mode: restart
     trigger:
       - platform: homeassistant
@@ -321,6 +325,7 @@ automation:
         to: "on"
     action:
       - delay: "00:00:02"
+      # Disable firmware auto-trigger
       - service: mqtt.publish
         data:
           topic: "irrigation/sensor/0/config"
@@ -329,6 +334,14 @@ automation:
         data:
           topic: "irrigation/sensor/1/config"
           payload: '{"resume_vwc": 0.0}'
+      # Re-assert valve timing from HA sliders
+      - service: mqtt.publish
+        data:
+          topic: "irrigation/valve/command"
+          payload: >-
+            {"action":"configure",
+             "pulse_duration_s":{{ states('input_number.irrigation_pulse_duration') | int }},
+             "settle_duration_s":{{ states('input_number.irrigation_settle_duration') | int }}}
 
   # -- Pulse driver: while the decision is ON and the valve is idle, request a
   #    pulse. The firmware gates the actual open via its settle/runtime limits,

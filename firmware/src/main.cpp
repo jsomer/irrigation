@@ -12,12 +12,6 @@ static const char* TAG = "Main";
 
 // ── Hardware objects ──────────────────────────────────────────────────────────
 
-// Sensor pins ordered to match their index (0 = A0, 1 = A1, …)
-static constexpr uint8_t SENSOR_PINS[SENSOR_COUNT] = {
-  Pin::SENSOR_0,
-  Pin::SENSOR_1,
-};
-
 VH400          sensors[SENSOR_COUNT] = {
   VH400(Pin::SENSOR_0),
   VH400(Pin::SENSOR_1),
@@ -39,20 +33,36 @@ float latestVWC[SENSOR_COUNT];
 
 // ── WiFi ──────────────────────────────────────────────────────────────────────
 
+static unsigned long lastWifiCheckMs = 0;
+static constexpr uint32_t WIFI_CHECK_INTERVAL_MS  = 30000;  // check every 30 s
+static constexpr uint32_t WIFI_CONNECT_TIMEOUT_MS = 20000;  // 20 s per attempt
+
 void connectWiFi() {
   LOG_I(TAG, "Connecting to WiFi %s ...", WIFI_SSID);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 
-  uint8_t retries = 0;
-  while (WiFi.status() != WL_CONNECTED && retries < 40) {
+  unsigned long start = millis();
+  while (WiFi.status() != WL_CONNECTED && millis() - start < WIFI_CONNECT_TIMEOUT_MS) {
     delay(500);
-    retries++;
   }
 
   if (WiFi.status() == WL_CONNECTED) {
     LOG_I(TAG, "WiFi connected. IP: %s", WiFi.localIP().toString().c_str());
   } else {
-    LOG_E(TAG, "WiFi failed - running in offline failsafe mode");
+    LOG_E(TAG, "WiFi failed - will retry in %d s", WIFI_CHECK_INTERVAL_MS / 1000);
+  }
+}
+
+// Called every loop. Reconnects silently if WiFi has dropped.
+void maintainWiFi() {
+  unsigned long now = millis();
+  if (now - lastWifiCheckMs < WIFI_CHECK_INTERVAL_MS) return;
+  lastWifiCheckMs = now;
+
+  if (WiFi.status() != WL_CONNECTED) {
+    LOG_W(TAG, "WiFi lost — reconnecting...");
+    WiFi.disconnect();
+    connectWiFi();
   }
 }
 
@@ -142,7 +152,8 @@ void checkFailsafe() {
 
 void setup() {
   Serial.begin(115200);
-  while (!Serial) {}
+  // Wait up to 3 s for a serial monitor; skip silently in headless deployment.
+  { unsigned long t = millis(); while (!Serial && millis() - t < 3000) {} }
   Serial.println("\n=== Irrigation Controller booting ===");
 
   pinMode(Pin::STATUS_LED, OUTPUT);
@@ -167,7 +178,8 @@ void setup() {
 void loop() {
   unsigned long now = millis();
 
-  // 1 — Keep MQTT alive
+  // 1 — Maintain WiFi and MQTT
+  maintainWiFi();
   mqtt.loop();
 
   // 2 — Read sensors on interval

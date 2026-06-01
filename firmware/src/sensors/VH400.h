@@ -13,7 +13,7 @@ public:
   // Returns the averaged VWC reading (0–100 %). Returns -1 on read error.
   float readVWC();
 
-  // Returns raw averaged voltage (0–3.3 V).
+  // Returns raw averaged voltage (0–3.0 V; VH400 max output).
   float readVoltage();
 
   // True if no successful read has been taken yet or last read was >STALE_MS ago.

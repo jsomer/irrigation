@@ -26,9 +26,11 @@
 | `GND` | VH400 Sensor 0 & 1 ground (black); relay GND | Common ground |
 | `LED_BUILTIN` | On-board LED | Blinks every telemetry interval (alive indicator) |
 
-> **UNO R4 WiFi analog note:** The RA4M1 ADC is 14-bit capable but defaults to
-> 10-bit (0–1023) in the Arduino framework. The VH400 calibration in
-> `VH400.cpp` uses 10-bit resolution and a 5 V AVCC reference.
+> **UNO R4 WiFi analog note:** The RA4M1 ADC reference is **3.3 V** regardless
+> of the USB/5 V supply rail. The VH400 is powered from 5 V but its signal
+> output is 0–3 V, which falls safely within the 0–3.3 V ADC input range — no
+> voltage divider is needed. `config.h` sets `Sensor::VCC = 3.3f` and
+> `Sensor::ADC_MAX = 1023` (10-bit default resolution) for the calibration math.
 
 ---
 

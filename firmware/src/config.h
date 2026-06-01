@@ -46,7 +46,10 @@ namespace Safety {
 namespace Sensor {
   constexpr uint8_t  AVERAGING_SAMPLES  = 16;
   constexpr uint32_t READ_INTERVAL_MS   = 5000;
-  constexpr float    VCC                = 5.0f;   // AVCC = 5 V on UNO R4
+  // UNO R4 WiFi (RA4M1) ADC reference is 3.3 V regardless of the 5 V supply.
+  // The VH400 is powered at 5 V but its signal output is 0–3 V, which falls
+  // within the 0–3.3 V ADC input range — no voltage divider needed.
+  constexpr float    VCC                = 3.3f;
   constexpr uint16_t ADC_MAX            = 1023;   // 10-bit default resolution
 }
 
