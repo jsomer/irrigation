@@ -1,0 +1,47 @@
+name: Firmware Build
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "firmware/**"
+      - ".github/workflows/firmware-build.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "firmware/**"
+
+jobs:
+  build:
+    name: PlatformIO build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: pio-${{ hashFiles('firmware/platformio.ini') }}
+
+      - name: Install PlatformIO
+        run: pip install platformio
+
+      - name: Create dummy secrets.h
+        run: |
+          cat > firmware/src/secrets.h << 'EOF'
+          #pragma once
+          #define WIFI_SSID     "ci_ssid"
+          #define WIFI_PASSWORD "ci_password"
+          #define MQTT_BROKER   "127.0.0.1"
+          #define MQTT_PORT     1883
+          #define MQTT_USER     "ci_user"
+          #define MQTT_PASSWORD "ci_password"
+          EOF
+
+      - name: Build firmware (debug)
+        run: cd firmware && pio run -e uno_r4_wifi
+
+      - name: Build firmware (release)
+        run: cd firmware && pio run -e uno_r4_wifi_release
