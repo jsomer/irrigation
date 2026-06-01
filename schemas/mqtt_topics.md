@@ -56,11 +56,27 @@ Sensor 1 (A1) ──┤── auto-trigger logic ──► Valve (Pin 5)
 | `runtime_hour_s`  | uint32 | s    | Valve-open seconds this hour       |
 | `pulse_count`     | uint32 | —    | Total pulses since boot            |
 | `state`           | string | —    | `idle` / `pulsing` / `settling` / `fault` |
-| `fault_reason`    | string | —    | Present only when `state=fault`    |
+| `error_code`      | string | —    | `none` when healthy; see table below when faulted |
+| `fault_reason`    | string | —    | Human-readable detail; present only when `state=fault` |
 | `ts`              | uint32 | s    | Uptime timestamp                   |
 
+**Error codes:**
+
+| Code | Condition |
+|------|-----------|
+| `none` | No fault |
+| `E001` | Pulse exceeded 120 s hard limit (hit during active pulse) |
+| `E002` | Hourly runtime budget exhausted (600 s/hr) |
+| `E003` | Daily runtime budget exhausted (3600 s/day) |
+| `E004` | Pulse request denied (unexpected state) |
+
 ```json
-{"valve_open":false,"runtime_today_s":210,"runtime_hour_s":210,"pulse_count":7,"state":"settling","ts":2117}
+{"valve_open":false,"runtime_today_s":210,"runtime_hour_s":210,"pulse_count":7,"state":"settling","error_code":"none","ts":2117}
+```
+
+Fault example:
+```json
+{"valve_open":false,"runtime_today_s":620,"runtime_hour_s":620,"pulse_count":21,"state":"fault","error_code":"E002","fault_reason":"hourly runtime limit exceeded","ts":4301}
 ```
 
 #### Valve Status (LWT)

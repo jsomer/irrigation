@@ -110,7 +110,7 @@ The single-valve, multi-sensor design means:
 |---|---|---|
 | `irrigation/sensor/<id>/telemetry` | Device → HA | `{sensor, vwc, ts}` |
 | `irrigation/sensor/<id>/config` | HA → Device | `{resume_vwc}` |
-| `irrigation/valve/telemetry` | Device → HA | `{valve_open, state, runtime_today_s, runtime_hour_s, pulse_count, ts}` |
+| `irrigation/valve/telemetry` | Device → HA | `{valve_open, state, error_code, runtime_today_s, runtime_hour_s, pulse_count, ts}` |
 | `irrigation/valve/command` | HA → Device | `{action: pulse\|close\|clear_fault\|configure}` |
 | `irrigation/valve/status` | Device → HA | `online` / `offline` (retained, LWT) |
 | `homeassistant/<domain>/<id>/config` | Device → HA | MQTT Discovery payloads (retained) |
@@ -122,7 +122,7 @@ The single-valve, multi-sensor design means:
 On every MQTT connect the firmware publishes MQTT Discovery configs that register:
 
 - **Sensor entities** per sensor zone: VWC %
-- **Valve entities**: open/closed binary sensor, state string, runtime counters, pulse count
+- **Valve entities**: open/closed binary sensor, state string, error code, runtime counters, pulse count
 - **Connectivity entity**: online/offline binary sensor (from LWT)
 - **Button entities**: Pulse, Close, Clear Fault
 
@@ -139,8 +139,9 @@ device registry.
   automations triggered by slider changes
 
 The Lovelace dashboard (`homeassistant/dashboards/irrigation.yaml`) provides a
-moisture history graph, current VWC gauges, valve status, manual controls, and
-configuration sliders.
+moisture history graph, current VWC gauges, zone/pulsing status, valve status
+with error code, manual controls, moisture limits, and configuration sliders.
+A conditional fault-alert card appears automatically when an error code is active.
 
 ---
 
@@ -171,3 +172,6 @@ Safety is enforced in firmware and cannot be bypassed by any external system:
    received.
 5. Sensor readings below 1 % VWC are treated as invalid and never trigger the
    auto-pulse, preventing spurious watering from disconnected probes.
+6. Structured error codes (E001–E004) are published in valve telemetry on every
+   fault, giving a precise machine-readable cause for dashboard display and
+   future AI analysis.
