@@ -199,7 +199,7 @@ No valve hardware changes are required.
 
 ```
 firmware/
-  platformio.ini
+  platformio.ini          board, libraries (PubSubClient, ArduinoJson), build envs
   src/
     config.h              pins, #define MQTT topics, safety limits, defaults
     secrets.h             WiFi + MQTT credentials (gitignored)
@@ -220,5 +220,6 @@ homeassistant/
   dashboards/
     irrigation.yaml       Lovelace dashboard YAML
 docs/
-  theory_of_operation.md  detailed firmware and protocol design notes
+  hardware.md             Bill of materials, pin connections, wiring diagrams
+  theory_of_operation.md  Firmware and protocol design notes
 ```
