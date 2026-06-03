@@ -3,7 +3,7 @@
 
 // ── Hardware ──────────────────────────────────────────────────────────────────
 // VH400 sensors connect to analog input pins.
-// Single solenoid valve connects through a relay/MOSFET driver; HIGH = open.
+// Solenoid via 5 V relay module (optocoupler IN on D5, trigger < 5 mA); HIGH = open.
 
 namespace Pin {
   constexpr uint8_t SENSOR_0    = A0;

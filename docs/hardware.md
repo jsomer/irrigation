@@ -7,7 +7,7 @@
 | 1 | Arduino UNO R4 WiFi | Renesas RA4M1, built-in WiFi (ESP32-S3 co-processor) | Main controller |
 | 2 | Vegetronix VH400 | Capacitive soil moisture probe, 0–3 V analog output | One per measurement zone |
 | 1 | Solenoid valve | 24 VAC or 12 VDC irrigation valve | Any standard 3/4" irrigation solenoid |
-| 1 | Relay module or MOSFET driver | 5 V logic-level trigger; rated for valve voltage/current | See valve driver section below |
+| 1 | 5 V relay module (optocoupler input) | Logic IN on `D5`; coil powered from module VCC | Trigger current **< 5 mA** — see valve driver section |
 | 1 | Power supply (valve) | Match valve voltage (24 VAC adapter or 12 VDC supply) | Separate from UNO supply |
 | 1 | USB power supply | 5 V, ≥ 1 A | Powers the UNO R4 WiFi |
 | — | Hookup wire | 22 AWG stranded recommended | |
@@ -21,7 +21,7 @@
 |-----------------|--------------|-------|
 | `A0` | VH400 Sensor 0 signal wire | Analog input; 0–3 V |
 | `A1` | VH400 Sensor 1 signal wire | Analog input; 0–3 V |
-| `D5` | Relay/MOSFET input | HIGH = valve open |
+| `D5` | Relay module IN (optocoupler) | HIGH = valve open; GPIO sees < 5 mA |
 | `5V` | VH400 Sensor 0 & 1 power (red) | Both sensors share 5 V |
 | `GND` | VH400 Sensor 0 & 1 ground (black); relay GND | Common ground |
 | `LED_BUILTIN` | On-board LED | Blinks every telemetry interval (alive indicator) |
@@ -50,42 +50,41 @@ from the solenoid valve wiring to avoid interference.
 
 ---
 
-## Valve Driver Circuit
+## Valve Driver — Optocoupler Relay Module (standard)
 
-The UNO R4 WiFi's digital outputs are **3.3 V logic** with a maximum source/sink
-current of about **8 mA per GPIO pin** (RA4M1 datasheet). You must **not** wire
-the solenoid coil or a bare relay coil directly to `D5` — that will overload the
-pin and can damage the microcontroller.
+This project drives the solenoid through a **5 V relay module with an optocoupler
+input** (typical single-channel blue module). The UNO does not switch the solenoid
+or relay coil directly.
 
-Always use a relay module with an onboard optocoupler, or a MOSFET driver with a
-separate valve power supply, as described below.
+| Interface | Specification |
+|-----------|---------------|
+| Control signal | `D5` → module **IN** (3.3 V logic, active HIGH = valve open) |
+| Optocoupler input current | **< 5 mA** (within RA4M1 GPIO limit ~8 mA) |
+| Module VCC | UNO **5 V** (powers relay coil on the module) |
+| Module GND | Common with UNO GND |
+| Solenoid switching | Module **COM** / **NO** (or NC) + separate valve supply |
 
-### Option A — 5 V Relay Module (simplest)
+The GPIO pin only energises the optocoupler LED inside the module. The relay coil
+(~70 mA) is supplied from the module's VCC terminal, not from `D5`. Do **not**
+connect a solenoid coil or bare relay coil directly to a GPIO pin.
 
-```
-UNO D5 ──► IN  [5V Relay Module]  COM ──► Valve terminal 1
-UNO 5V ──► VCC                    NO  ──► Valve power supply +
-UNO GND──► GND                    
-                                   Valve terminal 2 ──► Valve power supply –/GND
-```
-
-Use a relay module with an onboard optocoupler (most blue relay modules).
-The coil is driven from the module's VCC, and the UNO logic signal only
-drives the optocoupler — no flyback diode needed on the UNO side.
-
-### Option B — MOSFET Driver (DC valves only)
+### Wiring
 
 ```
-UNO D5 ──[1 kΩ]──► Gate  [N-channel MOSFET, e.g. IRL540]
-UNO GND ──────────► Source
-                    Drain ──► Valve – terminal
-                    [1N4007 flyback across valve terminals]
-                    Valve power supply + ──► Valve + terminal
-                    Valve power supply – ──► UNO GND
+UNO D5  ──► IN   [5 V relay module, optocoupler input]  COM ──► Solenoid terminal 1
+UNO 5V  ──► VCC                                       NO  ──► Valve supply +
+UNO GND ──► GND
+                                                        Solenoid terminal 2 ──► Valve supply –/GND
 ```
 
-Use a logic-level MOSFET (gate threshold ≤ 3.3 V). Do **not** use option B
-with 24 VAC valves — use a relay or triac driver instead.
+Firmware: `Pin::VALVE = 5` in `config.h`; `digitalWrite(HIGH)` energises IN and
+closes the relay contact to open the valve path.
+
+### Alternate (not used in this build)
+
+A logic-level MOSFET can drive **DC-only** solenoids without a relay. **24 VAC**
+irrigation valves require a relay or triac driver — use the optocoupler relay
+module above.
 
 ---
 
@@ -95,11 +94,12 @@ with 24 VAC valves — use a relay or triac driver instead.
 |-----------|---------|
 | UNO R4 WiFi (WiFi active) | ~250 mA |
 | VH400 × 2 | ~30 mA total |
-| Relay module coil | ~70 mA |
+| Relay module coil (from 5 V VCC) | ~70 mA |
+| GPIO `D5` optocoupler input | < 5 mA |
 | **Total (USB supply)** | **~350 mA** |
 
-A 5 V / 1 A USB adapter has adequate headroom. The solenoid valve draws
-current from its own supply and does not load the UNO's USB rail.
+A 5 V / 1 A USB adapter has adequate headroom. The solenoid draws from the
+separate valve supply; only the relay module coil loads the UNO 5 V rail.
 
 ---
 

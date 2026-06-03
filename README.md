@@ -59,7 +59,7 @@ and shown on the dashboard.
 |---|---|
 | Microcontroller | Arduino UNO R4 WiFi |
 | Soil moisture | Vegetronix VH400 (0–3 V analog out, one per zone) |
-| Valve driver | 5 V relay module or MOSFET driver (single valve) |
+| Valve driver | 5 V relay module, optocoupler input (< 5 mA trigger on D5) |
 
 ### Pin Assignments (configurable in `firmware/src/config.h`)
 
@@ -67,7 +67,7 @@ and shown on the dashboard.
 |---|---|
 | VH400 Sensor 0 | A0 |
 | VH400 Sensor 1 | A1 |
-| Solenoid Valve | D5 |
+| Solenoid (via relay IN) | D5 |
 | Status LED | LED_BUILTIN |
 
 ## Firmware Setup

@@ -21,7 +21,7 @@ water. The firmware still enforces hard safety limits independently.
 | Sensor 1 VH400 | A1 |
 | Status LED | LED_BUILTIN |
 
-See [hardware.md](hardware.md) for wiring, relay/MOSFET driver, and BOM.  
+See [hardware.md](hardware.md) for wiring (optocoupler relay module, < 5 mA IN), and BOM.  
 See [vh400_calibration.md](vh400_calibration.md) for ADC and VWC conversion.
 
 ---
