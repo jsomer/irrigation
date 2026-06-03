@@ -39,7 +39,7 @@ bool ValveController::requestPulse() {
     enterFault(ErrorCode::HOURLY_LIMIT, "hourly runtime limit exceeded");
     return false;
   }
-  if (_runtimeTodayS >= Safety::MAX_RUNTIME_DAY_S) {
+  if (_runtimeTodayS >= _params.maxRuntimeDayS) {
     enterFault(ErrorCode::DAILY_LIMIT, "daily runtime limit exceeded");
     return false;
   }
@@ -84,6 +84,11 @@ bool ValveController::setParams(const ValveParams& p) {
   }
   _params.pulseDurationS  = min((uint16_t)Safety::MAX_PULSE_DURATION_S, p.pulseDurationS);
   _params.settleDurationS = max((uint16_t)Safety::MIN_SETTLE_S,         p.settleDurationS);
+  _params.maxRuntimeDayS  = constrain(p.maxRuntimeDayS,
+                                      Safety::MIN_RUNTIME_DAY_S,
+                                      Safety::MAX_RUNTIME_DAY_HARD_CAP_S);
+  LOG_I(TAG, "Params: pulse=%d s settle=%d s max_day=%lu s",
+           _params.pulseDurationS, _params.settleDurationS, _params.maxRuntimeDayS);
   return true;
 }
 
@@ -146,7 +151,7 @@ bool ValveController::canOpen() const {
   if (_state == ValveState::FAULT)    return false;
   if (_valveOpen)                     return false;
   if (_runtimeHourS  >= Safety::MAX_RUNTIME_HOUR_S) return false;
-  if (_runtimeTodayS >= Safety::MAX_RUNTIME_DAY_S)  return false;
+  if (_runtimeTodayS >= _params.maxRuntimeDayS)   return false;
   return true;
 }
 

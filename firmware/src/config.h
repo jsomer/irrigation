@@ -35,11 +35,12 @@ constexpr uint8_t SENSOR_COUNT = 2;
 
 // ── Safety hard limits (never overridden by MQTT/AI) ─────────────────────────
 namespace Safety {
-  constexpr uint32_t MAX_PULSE_DURATION_S  = 120;   // single valve open event
-  constexpr uint32_t MAX_RUNTIME_HOUR_S    = 600;   // 10 min/hr
-  constexpr uint32_t MAX_RUNTIME_DAY_S     = 3600;  // 1 hr/day
-  constexpr uint32_t MIN_SETTLE_S          = 60;    // min gap between pulses
-  constexpr uint32_t FAILSAFE_DISCONNECT_S = 120;   // close valve if MQTT lost
+  constexpr uint32_t MAX_PULSE_DURATION_S      = 120;    // single valve open event
+  constexpr uint32_t MAX_RUNTIME_HOUR_S        = 600;    // 10 min/hr (hard cap)
+  constexpr uint32_t MAX_RUNTIME_DAY_HARD_CAP_S = 28800; // 480 min/day absolute max
+  constexpr uint32_t MIN_RUNTIME_DAY_S         = 60;     // 1 min/day minimum
+  constexpr uint32_t MIN_SETTLE_S              = 60;     // min gap between pulses
+  constexpr uint32_t FAILSAFE_DISCONNECT_S     = 120;    // close valve if MQTT lost
 }
 
 // ── Sensor ────────────────────────────────────────────────────────────────────
@@ -58,6 +59,8 @@ namespace DefaultParams {
   // Valve timing (overridable via MQTT configure)
   constexpr uint16_t PULSE_DURATION_S   = 30;
   constexpr uint16_t SETTLE_DURATION_S  = 300;
+  // Daily valve-open budget (overridable via MQTT configure; HA slider uses minutes)
+  constexpr uint32_t MAX_RUNTIME_DAY_S  = 3600;  // 60 min/day default
   // Per-sensor dry threshold (overridable via MQTT sensor config)
   constexpr float    RESUME_VWC         = 25.0f;
 }

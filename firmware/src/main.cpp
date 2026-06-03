@@ -98,8 +98,10 @@ void onCommand(const MqttCommand& cmd) {
 
     } else if (strcmp(action, "configure") == 0) {
       ValveParams p = valve.params();
-      if (doc["pulse_duration_s"].is<uint16_t>())  p.pulseDurationS  = doc["pulse_duration_s"];
-      if (doc["settle_duration_s"].is<uint16_t>()) p.settleDurationS = doc["settle_duration_s"];
+      if (doc["pulse_duration_s"].is<uint16_t>())   p.pulseDurationS   = doc["pulse_duration_s"];
+      if (doc["settle_duration_s"].is<uint16_t>())  p.settleDurationS  = doc["settle_duration_s"];
+      if (!doc["max_runtime_day_s"].isNull())
+        p.maxRuntimeDayS = doc["max_runtime_day_s"].as<uint32_t>();
       valve.setParams(p);
       LOG_I(TAG, "Valve params updated");
 

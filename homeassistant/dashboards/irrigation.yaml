@@ -58,7 +58,7 @@ views:
             |------|---------|
             | E001 | Pulse exceeded 120 s hard limit |
             | E002 | Hourly runtime limit reached (600 s/hr) |
-            | E003 | Daily runtime limit reached (3600 s/day) |
+            | E003 | Daily runtime limit reached (see Max Runtime Today slider) |
             | E004 | Pulse request denied |
 
             Use the **Clear Fault** button in Manual Controls to resume operation.
@@ -125,11 +125,15 @@ views:
                 name: Pulse Duration
               - entity: input_number.irrigation_settle_duration
                 name: Settle Duration
+              - entity: input_number.irrigation_max_runtime_day_min
+                name: Max Runtime Today
           - type: markdown
             content: >
               Pulse: **{{ states('sensor.pulse_duration_display') }}**
               &nbsp;&nbsp;|&nbsp;&nbsp;
               Settle: **{{ states('sensor.settle_duration_display') }}**
+              &nbsp;&nbsp;|&nbsp;&nbsp;
+              Daily cap: **{{ states('input_number.irrigation_max_runtime_day_min') | int(0) }}** min
 
       # ── Moisture Limits ─────────────────────────────────────────────────────
       # Per-sensor thresholds, ordered low → high:

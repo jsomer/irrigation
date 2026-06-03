@@ -54,6 +54,15 @@ input_number:
     unit_of_measurement: "s"
     icon: mdi:timer-sand
 
+  irrigation_max_runtime_day_min:
+    name: "Max Runtime Today"
+    min: 1
+    max: 480
+    step: 5
+    initial: 60
+    unit_of_measurement: min
+    icon: mdi:timer-lock-outline
+
   # ── Sensor 0 moisture limits (used by HA decision logic) ──
   irrigation_sensor0_resume_vwc:
     name: "Sensor 0 Dry Limit"
@@ -280,7 +289,7 @@ automation:
             {%- elif code == 'E002' -%}
             Hourly runtime limit reached (600 s/hr). Wait for the hour window to reset or tap Clear Fault.
             {%- elif code == 'E003' -%}
-            Daily runtime limit reached (3600 s/day). Wait for the day window to reset or tap Clear Fault.
+            Daily runtime limit reached ({{ states('input_number.irrigation_max_runtime_day_min') | int }} min cap). Raise the slider or tap Clear Fault after the day window resets.
             {%- elif code == 'E004' -%}
             Pulse request denied (valve not idle or already in fault).
             {%- else -%}
@@ -309,6 +318,7 @@ automation:
         entity_id:
           - input_number.irrigation_pulse_duration
           - input_number.irrigation_settle_duration
+          - input_number.irrigation_max_runtime_day_min
     action:
       - delay: "00:00:01"
       - service: mqtt.publish
@@ -317,7 +327,8 @@ automation:
           payload: >-
             {"action":"configure",
              "pulse_duration_s":{{ states('input_number.irrigation_pulse_duration') | int }},
-             "settle_duration_s":{{ states('input_number.irrigation_settle_duration') | int }}}
+             "settle_duration_s":{{ states('input_number.irrigation_settle_duration') | int }},
+             "max_runtime_day_s":{{ states('input_number.irrigation_max_runtime_day_min') | int * 60 }}}
 
   # -- Sync firmware state on (re)connect ──────────────────────────────────────
   # Fired on HA start and every time the controller comes online, so a firmware
@@ -325,8 +336,8 @@ automation:
   #
   # 1. Neutralise the on-device auto-trigger (resume_vwc = 0.0 so no real
   #    reading ever crosses it; HA drives the valve exclusively).
-  # 2. Push the current valve timing sliders so firmware defaults can't drift
-  #    from what the user has set in the dashboard.
+  # 2. Push valve timing and daily runtime cap from HA sliders (firmware defaults
+  #    otherwise 30 s pulse, 300 s settle, 60 min/day).
   - alias: "Irrigation Sync Firmware On Connect"
     id: irrigation_sync_fw_on_connect
     mode: restart
@@ -354,7 +365,8 @@ automation:
           payload: >-
             {"action":"configure",
              "pulse_duration_s":{{ states('input_number.irrigation_pulse_duration') | int }},
-             "settle_duration_s":{{ states('input_number.irrigation_settle_duration') | int }}}
+             "settle_duration_s":{{ states('input_number.irrigation_settle_duration') | int }},
+             "max_runtime_day_s":{{ states('input_number.irrigation_max_runtime_day_min') | int * 60 }}}
 
   # -- Pulse driver: while the decision is ON and the valve is idle, request a
   #    pulse. The firmware gates the actual open via its settle/runtime limits,

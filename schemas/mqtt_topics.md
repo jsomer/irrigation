@@ -71,7 +71,7 @@ Sensor 1 (A1) ──┤── HA pulse decision ──MQTT──► Valve (Pin 5
 | `none` | No fault |
 | `E001` | Pulse exceeded 120 s hard limit (hit during active pulse) |
 | `E002` | Hourly runtime budget exhausted (600 s/hr) |
-| `E003` | Daily runtime budget exhausted (3600 s/day) |
+| `E003` | Daily runtime budget exhausted (configured `max_runtime_day_s`) |
 | `E004` | Pulse request denied (unexpected state) |
 
 ```json
@@ -108,12 +108,15 @@ All payloads are JSON. The `action` field selects the operation.
 | `pulse`       | —                                                 | Immediately start a pulse cycle          |
 | `close`       | —                                                 | Force valve closed                       |
 | `clear_fault` | —                                                 | Clear FAULT state                        |
-| `configure`   | `pulse_duration_s`, `settle_duration_s`           | Update valve timing parameters           |
+| `configure`   | `pulse_duration_s`, `settle_duration_s`, `max_runtime_day_s` | Valve timing + daily open-time budget |
 
 ```json
 {"action":"pulse"}
-{"action":"configure","pulse_duration_s":30,"settle_duration_s":300}
+{"action":"configure","pulse_duration_s":30,"settle_duration_s":300,"max_runtime_day_s":3600}
 ```
+
+`max_runtime_day_s` is the maximum total valve-open seconds per rolling 24 h window.
+Home Assistant exposes this as **minutes** on the dashboard (default 60, max 480).
 
 **Safety limits (firmware-enforced, cannot be overridden):**
 
@@ -121,7 +124,7 @@ All payloads are JSON. The `action` field selects the operation.
 |---------------------------|-------|
 | Max pulse duration        | 120 s |
 | Max runtime / hour        | 600 s |
-| Max runtime / day         | 3600 s |
+| Max runtime / day (configurable) | 60 s – 28 800 s (1–480 min via HA) |
 | Min settle gap            | 60 s  |
 | Failsafe disconnect close | 120 s |
 

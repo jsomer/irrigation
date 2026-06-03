@@ -107,7 +107,7 @@ Quick reference:
 |---|---|
 | Max single pulse duration | 120 s |
 | Max runtime per hour | 600 s (10 min) |
-| Max runtime per day | 3600 s (1 hr) |
+| Max runtime per day | Configurable via HA (default 60 min, max 480 min); firmware hard cap 8 hr |
 | Minimum settle time between pulses | 60 s |
 | Failsafe: close valve on MQTT loss after | 120 s |
 
@@ -172,7 +172,7 @@ data:
 service: mqtt.publish
 data:
   topic: irrigation/valve/command
-  payload: '{"action": "configure", "pulse_duration_s": 30, "settle_duration_s": 300}'
+  payload: '{"action": "configure", "pulse_duration_s": 30, "settle_duration_s": 300, "max_runtime_day_s": 3600}'
 
 # Sensor dry threshold on the device is held at 0 by HA (auto-trigger disabled).
 # HA owns the dry/high/green limits; the device only enforces hard safety caps.

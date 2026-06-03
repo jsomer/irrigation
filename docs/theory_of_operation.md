@@ -42,7 +42,7 @@ Single shared valve; state machine: `IDLE → PULSING → SETTLING → IDLE`, wi
 |---|---|
 | Max single pulse | 120 s |
 | Max runtime / hour | 600 s |
-| Max runtime / day | 3600 s |
+| Max runtime / day | Configurable (default 3600 s; HA slider 1–480 min) |
 | Min settle gap | 60 s |
 
 **MQTT layer — `MqttManager`**  
@@ -124,7 +124,7 @@ else yellow-low → ON; else yellow-high → OFF.
 | Sync Firmware On Connect | `resume_vwc: 0` per sensor + valve timing from sliders |
 | Pulse Driver | Every 30 s while decision ON and valve `idle`, send `pulse` |
 | Stop On Decision Off | Send `close` when decision turns OFF |
-| Apply Valve Config | Push pulse/settle when sliders change |
+| Apply Valve Config | Push pulse/settle/max runtime day when sliders change |
 | Valve Fault / Offline alerts | Notifications (fault includes E001–E004 text) |
 
 Firmware safety limits still apply to every `pulse` request.
@@ -148,7 +148,7 @@ Firmware safety limits still apply to every `pulse` request.
 | `none` | Healthy |
 | `E001` | Pulse exceeded 120 s hard limit |
 | `E002` | Hourly runtime limit (600 s/hr) |
-| `E003` | Daily runtime limit (3600 s/day) |
+| `E003` | Daily runtime limit (configured cap) |
 | `E004` | Pulse request denied |
 
 ---

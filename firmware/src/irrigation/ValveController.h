@@ -32,7 +32,7 @@ inline const char* errorCodeDesc(ErrorCode c) {
   switch (c) {
     case ErrorCode::MAX_PULSE_TIME: return "Pulse exceeded 120 s hard limit";
     case ErrorCode::HOURLY_LIMIT:   return "Hourly runtime limit reached (600 s/hr)";
-    case ErrorCode::DAILY_LIMIT:    return "Daily runtime limit reached (3600 s/day)";
+    case ErrorCode::DAILY_LIMIT:    return "Daily runtime limit reached";
     case ErrorCode::PULSE_DENIED:   return "Pulse request denied";
     default:                        return "No fault";
   }
@@ -48,8 +48,9 @@ enum class ValveState : uint8_t {
 };
 
 struct ValveParams {
-  uint16_t pulseDurationS  = DefaultParams::PULSE_DURATION_S;
-  uint16_t settleDurationS = DefaultParams::SETTLE_DURATION_S;
+  uint16_t pulseDurationS   = DefaultParams::PULSE_DURATION_S;
+  uint16_t settleDurationS  = DefaultParams::SETTLE_DURATION_S;
+  uint32_t maxRuntimeDayS   = DefaultParams::MAX_RUNTIME_DAY_S;
 };
 
 struct ValveTelemetry {
