@@ -159,11 +159,12 @@ views:
               - entity: input_number.irrigation_sensor1_wet_limit
                 name: High Limit (red above)
 
-      # ── Measurement Intervals ───────────────────────────────────────────────
-      - type: entities
+      # ── Measurement Intervals (firmware constants — change in config.h + reflash) ─
+      - type: markdown
         title: Measurement Intervals
-        entities:
-          - entity: input_number.irrigation_sensor_interval
-            name: Sensor Read Interval
-          - entity: input_number.irrigation_telemetry_interval
-            name: Telemetry Publish Interval
+        content: >
+          Sensor read: **5 s** &nbsp;|&nbsp; Telemetry publish: **10 s**
+
+          These are compile-time values in `firmware/src/config.h`
+          (`Sensor::READ_INTERVAL_MS`, `TELEMETRY_INTERVAL_MS`).
+          Changing them requires editing that file and reflashing the UNO.

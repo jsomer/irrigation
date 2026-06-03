@@ -5,7 +5,10 @@
 The irrigation controller is an Arduino UNO R4 WiFi-based embedded system that
 monitors soil moisture across multiple sensor zones and drives a single shared
 solenoid valve in metered pulses. It integrates with Home Assistant over MQTT for
-remote monitoring, manual control, and AI-assisted parameter tuning.
+monitoring, zone classification, pulsing decisions, and manual override.
+
+**Control authority:** Home Assistant is the authoritative controller for when to
+water. The firmware still enforces hard safety limits independently.
 
 ---
 
@@ -18,37 +21,22 @@ remote monitoring, manual control, and AI-assisted parameter tuning.
 | Sensor 1 VH400 | A1 |
 | Status LED | LED_BUILTIN |
 
-Solenoid output is an active-high digital signal. The VH400 is a capacitive soil
-moisture probe with a 0–3 V analog output; its voltage is converted to volumetric
-water content (VWC %) using a 5-segment piecewise-linear calibration per the
-Vegetronix datasheet.
+See [hardware.md](hardware.md) for wiring, relay/MOSFET driver, and BOM.  
+See [vh400_calibration.md](vh400_calibration.md) for ADC and VWC conversion.
 
 ---
 
 ## Firmware Architecture
 
-The firmware is structured in three layers under a single Arduino `loop()`.
+Three layers under a single Arduino `loop()`.
 
 **Sensor layer — `VH400`**  
-Reads the analog input, averages 16 samples with 200 µs inter-sample delay,
-applies the piecewise calibration, and clamps the result to 0–100 %. A reading
-below 1 % is treated as invalid (disconnected or floating probe) and excluded
-from the auto-trigger check.
+Averages 16 ADC samples, converts voltage to VWC % (3.3 V ADC reference), clamps
+0–100 %. Readings **< 1 %** are invalid (disconnected probe).
 
 **Valve layer — `ValveController`**  
-A single controller manages the shared valve through a four-state machine:
-
-```
-IDLE → PULSING → SETTLING → IDLE
-           ↘            ↗
-            FAULT (explicit clear required)
-```
-
-A `requestPulse()` call is accepted only from `IDLE` and only if all safety budget
-checks pass. The controller tracks runtime in rolling hourly and daily windows;
-both windows reset autonomously. All parameters passed in via MQTT are clamped to
-hard limits defined in `config.h` before being applied — these limits cannot be
-overridden at runtime.
+Single shared valve; state machine: `IDLE → PULSING → SETTLING → IDLE`, with
+`FAULT` on safety violations (requires `clear_fault`).
 
 | Safety limit | Value |
 |---|---|
@@ -58,49 +46,88 @@ overridden at runtime.
 | Min settle gap | 60 s |
 
 **MQTT layer — `MqttManager`**  
-Manages WiFi association and broker connection with 5 s auto-reconnect. On each
-successful connect it:
+WiFi reconnect every 30 s if dropped; MQTT reconnect every 5 s. On connect:
+subscribe to command/config topics, publish LWT `online`, publish MQTT Discovery
+configs, then telemetry every 10 s.
 
-1. Subscribes to `irrigation/valve/command` and `irrigation/sensor/<id>/config`.
-2. Publishes a retained `online` message to `irrigation/valve/status`.
-3. Publishes **MQTT Discovery** configs to `homeassistant/<domain>/<id>/config`
-   (retained) so HA auto-creates and groups all entities under a single
-   "Irrigation Controller" device — no manual YAML entity definitions required.
-
-Telemetry is published every 10 s: one `sensor/<id>/telemetry` message per sensor
-and one `valve/telemetry` message.
+**On-device auto-trigger (neutralised by HA)**  
+Firmware can pulse when any sensor VWC < `resume_vwc`. HA pushes
+`resume_vwc: 0.0` on every connect so this path never fires; HA drives pulses
+via `valve/command` instead.
 
 ---
 
 ## Main Loop
 
-Each `loop()` iteration executes five tasks in order:
+1. **WiFi** — `maintainWiFi()` every 30 s.
+2. **MQTT** — `mqtt.loop()`.
+3. **Sensors** — every 5 s, update `latestVWC[]`, run auto-trigger (inactive when HA sets `resume_vwc = 0`).
+4. **Valve** — `valve.update()` state machine.
+5. **Failsafe** — close valve if MQTT disconnected ≥ 120 s.
+6. **Telemetry** — every 10 s, sensor + valve JSON; blink status LED.
 
-1. **MQTT keepalive** — processes inbound messages and maintains broker connection.
-2. **Sensor read** (every 5 s) — updates `latestVWC[]` for all sensors, skipping
-   any reading < 1 % (disconnected probe), then runs the auto-trigger check.
-3. **Valve tick** — advances the valve state machine.
-4. **Failsafe check** — if MQTT has been disconnected for ≥ 120 s, the valve is
-   force-closed if open.
-5. **Telemetry publish** (every 10 s) — sends one `sensor/<id>/telemetry` message
-   per sensor and one `valve/telemetry` message; blinks the status LED.
+Serial boot waits up to 3 s for a monitor, then continues headless.
 
 ---
 
-## Auto-trigger Logic
+## Home Assistant — Authoritative Control
 
-After each sensor read, the controller compares every valid sensor VWC against its
-individually configured `resumeVWC` threshold. If *any* sensor reads below
-threshold and the valve is currently `IDLE`, `requestPulse()` is called
-immediately. The valve controller then enforces all safety limits before opening
-the valve.
+### MQTT Discovery entities
 
-The single-valve, multi-sensor design means:
+Firmware registers entities under device **"Irrigation Controller"**. Home
+Assistant prefixes entity IDs with the device slug:
 
-- Moisture differences between sensors are **informational** — they guide where to
-  physically reposition sprinklers or soaker hose, not which valve to open.
-- Home Assistant and an AI layer can issue explicit pulses via `valve/command`, or
-  update per-sensor thresholds via `sensor/<id>/config`.
+| Purpose | Example entity ID |
+|---------|-------------------|
+| Sensor 0 VWC | `sensor.irrigation_controller_irrigation_sensor_0_vwc` |
+| Sensor 1 VWC | `sensor.irrigation_controller_irrigation_sensor_1_vwc` |
+| Valve open | `binary_sensor.irrigation_controller_irrigation_valve` |
+| Valve state | `sensor.irrigation_controller_irrigation_valve_state` |
+| Error code | `sensor.irrigation_controller_irrigation_error_code` |
+| Online | `binary_sensor.irrigation_controller_online` |
+| Pulse / Close / Clear fault | `button.irrigation_controller_irrigation_valve_pulse`, etc. |
+
+Package-defined template sensors use shorter IDs (no device prefix), e.g.
+`sensor.irrigation_sensor_0_zone`, `sensor.irrigation_pulse_decision`.
+
+Use **Developer Tools → States** and search `irrigation` if IDs differ after an
+HA upgrade.
+
+### Five-zone moisture model (per sensor)
+
+Four `input_number` thresholds per sensor (low → high):
+
+```
+dry limit ≤ green_low ≤ green_high ≤ high limit
+```
+
+| Zone | Colour | Pulsing intent |
+|------|--------|----------------|
+| VWC ≤ dry limit | red | ON (needs water) |
+| dry < VWC < green_low | yellow | ON (trending dry) |
+| green_low ≤ VWC ≤ green_high | green | OFF (target) |
+| green_high < VWC < high limit | yellow | OFF (trending wet) |
+| VWC ≥ high limit | red | OFF (saturated) |
+
+Template sensors `sensor.irrigation_sensor_<n>_zone` expose `state` and `color`.
+
+### Master pulse decision
+
+`sensor.irrigation_pulse_decision` (`on` / `off`) with `reason` attribute.  
+**Precedence (dry wins):** any dry → ON; else any wet → OFF; else all green → OFF;
+else yellow-low → ON; else yellow-high → OFF.
+
+### Automations (package)
+
+| Automation | Role |
+|------------|------|
+| Sync Firmware On Connect | `resume_vwc: 0` per sensor + valve timing from sliders |
+| Pulse Driver | Every 30 s while decision ON and valve `idle`, send `pulse` |
+| Stop On Decision Off | Send `close` when decision turns OFF |
+| Apply Valve Config | Push pulse/settle when sliders change |
+| Valve Fault / Offline alerts | Notifications (fault includes E001–E004 text) |
+
+Firmware safety limits still apply to every `pulse` request.
 
 ---
 
@@ -110,68 +137,36 @@ The single-valve, multi-sensor design means:
 |---|---|---|
 | `irrigation/sensor/<id>/telemetry` | Device → HA | `{sensor, vwc, ts}` |
 | `irrigation/sensor/<id>/config` | HA → Device | `{resume_vwc}` |
-| `irrigation/valve/telemetry` | Device → HA | `{valve_open, state, error_code, runtime_today_s, runtime_hour_s, pulse_count, ts}` |
-| `irrigation/valve/command` | HA → Device | `{action: pulse\|close\|clear_fault\|configure}` |
-| `irrigation/valve/status` | Device → HA | `online` / `offline` (retained, LWT) |
-| `homeassistant/<domain>/<id>/config` | Device → HA | MQTT Discovery payloads (retained) |
+| `irrigation/valve/telemetry` | Device → HA | `{valve_open, state, error_code, runtime_*, pulse_count, ts}` |
+| `irrigation/valve/command` | HA → Device | `pulse`, `close`, `clear_fault`, `configure` |
+| `irrigation/valve/status` | Device → HA | `online` / `offline` (LWT) |
 
----
+**Error codes** (`error_code` in valve telemetry):
 
-## Home Assistant Integration
-
-On every MQTT connect the firmware publishes MQTT Discovery configs that register:
-
-- **Sensor entities** per sensor zone: VWC %
-- **Valve entities**: open/closed binary sensor, state string, error code, runtime counters, pulse count
-- **Connectivity entity**: online/offline binary sensor (from LWT)
-- **Button entities**: Pulse, Close, Clear Fault
-
-All entities appear under a single **"Irrigation Controller"** device in HA's
-device registry.
-
-`irrigation.yaml` is a supporting HA package providing:
-
-- **`input_number` helpers**: pulse duration, settle duration (shared valve
-  timing), per-sensor `resume_vwc` dry thresholds — sliders automatically publish
-  configure messages to the firmware via MQTT on change (1 s debounce)
-- **Template sensors**: formatted m:ss display for pulse and settle durations
-- **Automations**: fault alert, offline alert (after 2 min), configure-publish
-  automations triggered by slider changes
-
-The Lovelace dashboard (`homeassistant/dashboards/irrigation.yaml`) provides a
-moisture history graph, current VWC gauges, zone/pulsing status, valve status
-with error code, manual controls, moisture limits, and configuration sliders.
-A conditional fault-alert card appears automatically when an error code is active.
+| Code | Meaning |
+|------|---------|
+| `none` | Healthy |
+| `E001` | Pulse exceeded 120 s hard limit |
+| `E002` | Hourly runtime limit (600 s/hr) |
+| `E003` | Daily runtime limit (3600 s/day) |
+| `E004` | Pulse request denied |
 
 ---
 
 ## Scaling to More Sensors
 
-To add a third (or more) sensor:
-
-1. Increment `SENSOR_COUNT` in `config.h`.
-2. Add `Pin::SENSOR_N` and extend `SENSOR_PINS[]` in `main.cpp`.
-3. Re-flash the firmware — Discovery automatically registers the new sensor in HA.
-4. Add a `resume_vwc` `input_number` helper and config-push automation in
-   `irrigation.yaml` for the new sensor index.
-
-No valve hardware changes are required; the single valve serves all sensor zones.
+1. Increment `SENSOR_COUNT` in `config.h`; add pin and `VH400` in `main.cpp`; reflash.
+2. Discovery registers the new VWC sensor automatically.
+3. In `irrigation.yaml`: four limit `input_number`s, zone template sensor, extend
+   pulse-decision `zones` list, add `resume_vwc: 0` to Sync Firmware automation.
 
 ---
 
 ## Safety Summary
 
-Safety is enforced in firmware and cannot be bypassed by any external system:
-
-1. Hard limits are compile-time constants in `config.h` — no runtime path can
-   change them.
-2. `ValveController::setParams()` silently clamps all incoming values before
-   storing them.
-3. The failsafe closes the valve on loss of MQTT connectivity regardless of state.
-4. Fault state latches the valve closed until an explicit `clear_fault` command is
-   received.
-5. Sensor readings below 1 % VWC are treated as invalid and never trigger the
-   auto-pulse, preventing spurious watering from disconnected probes.
-6. Structured error codes (E001–E004) are published in valve telemetry on every
-   fault, giving a precise machine-readable cause for dashboard display and
-   future AI analysis.
+1. Hard limits in `config.h` — not overridable remotely.
+2. `setParams()` clamps MQTT configure values.
+3. MQTT-loss failsafe closes valve after 120 s.
+4. Fault latches until `clear_fault`.
+5. VWC < 1 % ignored for auto-trigger.
+6. Error codes E001–E004 in telemetry and HA notifications.

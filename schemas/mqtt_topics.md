@@ -8,14 +8,18 @@
 
 ## Architecture
 
-One solenoid **valve** is shared across all moisture measurement **sensors**.  
-The valve fires automatically when *any* sensor VWC drops below that sensor's
-configured `resume_vwc` threshold.  Differences in moisture between sensors
-inform physical sprinkler/soaker-hose positioning.
+One solenoid **valve** is shared across all moisture measurement **sensors**.
+
+**Production control:** Home Assistant drives the valve (`pulse` / `close`) from
+its five-zone moisture model. HA sets `resume_vwc: 0.0` on each sensor so the
+firmware on-device auto-trigger never fires.
+
+**Firmware fallback:** If `resume_vwc` were raised, any sensor below threshold
+while the valve is `idle` could request a pulse (still subject to safety limits).
 
 ```
 Sensor 0 (A0) ──┐
-Sensor 1 (A1) ──┤── auto-trigger logic ──► Valve (Pin 5)
+Sensor 1 (A1) ──┤── HA pulse decision ──MQTT──► Valve (Pin 5)
 ...             ┘
 ```
 
@@ -136,12 +140,28 @@ All payloads are JSON. The `action` field selects the operation.
 
 ---
 
+## Home Assistant entity IDs (MQTT Discovery)
+
+Discovery registers entities under device **Irrigation Controller**. HA
+builds entity IDs from the device slug + `object_id`, for example:
+
+| `object_id` (firmware) | Typical HA entity ID |
+|------------------------|----------------------|
+| `irrigation_sensor_0_vwc` | `sensor.irrigation_controller_irrigation_sensor_0_vwc` |
+| `irrigation_valve_state` | `sensor.irrigation_controller_irrigation_valve_state` |
+| `irrigation_error_code` | `sensor.irrigation_controller_irrigation_error_code` |
+| `irrigation_controller_online` | `binary_sensor.irrigation_controller_online` |
+
+Package template sensors (zone, pulse decision) are defined in YAML and use
+shorter IDs without the device prefix.
+
+---
+
 ## Scaling
 
 To add a third (or more) sensor:
 
 1. Increment `SENSOR_COUNT` in `config.h`.
-2. Add a `Pin::SENSOR_N` constant and extend the `SENSOR_PINS` array in `main.cpp`.
-3. Re-flash the firmware.
-4. Home Assistant automatically picks up the new `irrigation/sensor/2/telemetry`
-   topic — add corresponding entity entries in `irrigation.yaml`.
+2. Add `Pin::SENSOR_N` and a `VH400` instance in `main.cpp`.
+3. Re-flash the firmware — Discovery registers `irrigation_sensor_<n>_vwc`.
+4. Extend `homeassistant/packages/irrigation.yaml` (limits, zone template, pulse decision, sync automation).

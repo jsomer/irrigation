@@ -152,7 +152,7 @@ raw config editor. It provides:
 - **Manual controls** — Pulse, Force Close, Clear Fault buttons
 - **Valve timing sliders** — pulse duration and settle wait (pushed to firmware automatically)
 - **Moisture limit sliders** — per-sensor dry / green-low / green-high / high limits that drive the zone + pulsing logic
-- **Measurement interval display** — sensor read and telemetry publish intervals
+- **Measurement intervals** — fixed firmware constants (5 s read / 10 s telemetry); change in `config.h` and reflash
 
 > The colour chip uses emoji so it works with zero HACS dependencies. To colour
 > the gauges themselves red at *both* ends, swap them for a custom card
@@ -185,15 +185,21 @@ data:
 ## Scaling to More Sensors
 
 1. Increment `SENSOR_COUNT` in `firmware/src/config.h`.
-2. Add a `Pin::SENSOR_N` constant and extend `SENSOR_PINS[]` in `firmware/src/main.cpp`.
+2. Add a `Pin::SENSOR_N` constant and a `VH400` entry in `firmware/src/main.cpp`.
 3. Re-flash the firmware — MQTT Discovery automatically registers the new sensor entity in HA.
 4. In `homeassistant/packages/irrigation.yaml`: add the four limit `input_number`s
    (`dry` / `green_low` / `green_high` / `wet`) and an `Irrigation Sensor N Zone`
-   template sensor for the new sensor, then extend the `zones` list in the
-   `Irrigation Pulse Decision` sensor and the `resume_vwc = 0.0` publish in the
-   "Disable Firmware Auto-Trigger" automation.
+   template sensor, extend the `zones` list in `Irrigation Pulse Decision`, and
+   add `resume_vwc: 0.0` to the **Sync Firmware On Connect** automation.
 
 No valve hardware changes are required.
+
+### Entity IDs (MQTT Discovery)
+
+Discovery entities are grouped under device **Irrigation Controller** and use IDs
+such as `sensor.irrigation_controller_irrigation_sensor_0_vwc`. Package template
+sensors use shorter IDs (`sensor.irrigation_sensor_0_zone`, etc.). See
+[docs/theory_of_operation.md](docs/theory_of_operation.md) for the full table.
 
 ## Project Structure
 
@@ -221,5 +227,6 @@ homeassistant/
     irrigation.yaml       Lovelace dashboard YAML
 docs/
   hardware.md             Bill of materials, pin connections, wiring diagrams
-  theory_of_operation.md  Firmware and protocol design notes
+  vh400_calibration.md    ADC reference, piecewise VWC formulas
+  theory_of_operation.md  Firmware, HA control model, MQTT, entity IDs
 ```

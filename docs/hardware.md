@@ -52,8 +52,13 @@ from the solenoid valve wiring to avoid interference.
 
 ## Valve Driver Circuit
 
-The UNO R4 WiFi's digital outputs are 3.3 V logic at low current. You need a
-driver stage between `D5` and the solenoid.
+The UNO R4 WiFi's digital outputs are **3.3 V logic** with a maximum source/sink
+current of about **8 mA per GPIO pin** (RA4M1 datasheet). You must **not** wire
+the solenoid coil or a bare relay coil directly to `D5` — that will overload the
+pin and can damage the microcontroller.
+
+Always use a relay module with an onboard optocoupler, or a MOSFET driver with a
+separate valve power supply, as described below.
 
 ### Option A — 5 V Relay Module (simplest)
 

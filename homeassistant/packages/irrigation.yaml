@@ -128,7 +128,8 @@ input_number:
     unit_of_measurement: "%"
     icon: mdi:water-plus-outline
 
-  # Display-only interval indicators (firmware values are compile-time constants)
+  # Informational only — intervals are compile-time constants in firmware/src/config.h
+  # (Sensor::READ_INTERVAL_MS, TELEMETRY_INTERVAL_MS). Not sent to the device.
   irrigation_sensor_interval:
     name: "Sensor Read Interval"
     min: 2
@@ -271,8 +272,20 @@ automation:
     action:
       - service: persistent_notification.create
         data:
-          title: "Irrigation Fault"
-          message: "Valve entered fault state. Check the controller."
+          title: "Irrigation Fault {{ states('sensor.irrigation_controller_irrigation_error_code') }}"
+          message: >-
+            {%- set code = states('sensor.irrigation_controller_irrigation_error_code') -%}
+            {%- if code == 'E001' -%}
+            Pulse exceeded 120 s hard limit. Valve force-closed.
+            {%- elif code == 'E002' -%}
+            Hourly runtime limit reached (600 s/hr). Wait for the hour window to reset or tap Clear Fault.
+            {%- elif code == 'E003' -%}
+            Daily runtime limit reached (3600 s/day). Wait for the day window to reset or tap Clear Fault.
+            {%- elif code == 'E004' -%}
+            Pulse request denied (valve not idle or already in fault).
+            {%- else -%}
+            Valve entered fault state (code: {{ code }}). Check the controller.
+            {%- endif -%}
 
   - alias: "Irrigation Controller Offline Alert"
     id: irrigation_controller_offline_alert
