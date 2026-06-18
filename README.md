@@ -17,41 +17,11 @@ VH400 Sensors → UNO R4 WiFi → MQTT → Home Assistant (dashboards/history)
 between sensors inform physical sprinkler/soaker-hose positioning rather than
 which valve to open.
 
-**Control authority.** The firmware can self-trigger when any sensor drops below
-its dry threshold, but the Home Assistant package makes HA the authoritative
-controller: it pushes `resume_vwc = 0.0` to every sensor (disabling the on-device
-auto-trigger, since no real reading can fall below 0) and then drives the valve
-exclusively via `pulse` / `close` commands based on a five-zone moisture model.
-The firmware's hard safety limits stay active as an independent backstop.
-
-### Moisture zones (per sensor)
-
-Each sensor has four configurable thresholds, ordered low → high:
-
-```
- RED (dry) | YELLOW (low) | GREEN (target) | YELLOW (high) | RED (saturated)
-          dry           green_low       green_high        high
-         limit                                            limit
-```
-
-| Zone condition | Colour | Pulsing intent |
-|---|---|---|
-| `VWC ≤ dry limit` | red | ON (needs water) |
-| `dry < VWC < green_low` | yellow | ON (trending dry) |
-| `green_low ≤ VWC ≤ green_high` | green | OFF (in target) |
-| `green_high < VWC < high limit` | yellow | OFF (trending wet) |
-| `VWC ≥ high limit` | red | OFF (saturated) |
-
-**Pulsing decision precedence** (single shared valve, **dry wins**):
-
-1. Any sensor dry → **ON**
-2. Else any sensor saturated → **OFF**
-3. Else all sensors green → **OFF**
-4. Else a yellow-low sensor → **ON**; a yellow-high sensor → **OFF**
-
-The current decision and the human-readable reason are exposed as
-`sensor.irrigation_pulse_decision` (state `on`/`off`, with a `reason` attribute)
-and shown on the dashboard.
+**Control authority.** Firmware auto-triggers when any sensor VWC drops below its
+`resume_vwc` dry threshold. Home Assistant pushes threshold and timing sliders to
+the device, provides monitoring and manual override (`pulse` / `close`), and
+syncs config when the controller reconnects. Firmware hard safety limits stay
+active as an independent backstop.
 
 ## Hardware
 
@@ -79,13 +49,16 @@ and shown on the dashboard.
 cp firmware/src/secrets.h.example firmware/src/secrets.h
 # Edit secrets.h with your WiFi + MQTT credentials
 
-# 3. Build and upload
+# 3. Build and upload (UNO connected via USB)
 cd firmware
 pio run -e uno_r4_wifi -t upload
 
 # 4. Monitor serial output
 pio device monitor
 ```
+
+On boot you should see `MQTT connected` and telemetry log lines every 10 s.
+Topics use `irrigation/sensor/<id>/…` and `irrigation/valve/…`.
 
 ## MQTT Topics
 
@@ -107,7 +80,7 @@ Quick reference:
 |---|---|
 | Max single pulse duration | 120 s |
 | Max runtime per hour | 600 s (10 min) |
-| Max runtime per day | Configurable via HA (default 60 min, max 480 min); firmware hard cap 8 hr |
+| Max runtime per day | Configurable via MQTT (default 60 min, max 480 min); firmware hard cap 8 hr |
 | Minimum settle time between pulses | 60 s |
 | Failsafe: close valve on MQTT loss after | 120 s |
 
@@ -119,11 +92,9 @@ and button entities and groups them under a single **"Irrigation Controller"**
 device — no manual entity YAML required.
 
 `homeassistant/packages/irrigation.yaml` provides the remaining HA-native
-elements: `input_number` sliders for valve timing and per-sensor moisture limits
-(dry / green-band low / green-band high / high), template sensors that classify
-each sensor's zone + colour and compute the master pulse decision, and the
-automations that disable the firmware auto-trigger, drive pulses, and force-close
-the valve.
+elements: `input_number` sliders for valve timing and per-sensor dry thresholds,
+template sensors for human-readable duration display, and automations that push
+slider values to the firmware and sync on reconnect.
 
 **To enable the package**, add this to your `configuration.yaml`:
 
@@ -146,18 +117,12 @@ Copy `homeassistant/dashboards/irrigation.yaml` into a new HA dashboard via the
 raw config editor. It provides:
 
 - **Moisture history graph** — 48-hour VWC trend for all sensors
-- **Current moisture gauges** — live VWC per sensor (built-in gauge; reddens only at the low end)
-- **Zone & pulsing status** — per-sensor five-zone colour (🟢/🟡/🔴) plus the current pulsing state and the reason for it
-- **Valve status** — state, pulse decision + reason, pulse count, runtime today/hour
+- **Current moisture gauges** — live VWC per sensor
+- **Valve status** — state, pulse count, runtime today/hour
 - **Manual controls** — Pulse, Force Close, Clear Fault buttons
 - **Valve timing sliders** — pulse duration and settle wait (pushed to firmware automatically)
-- **Moisture limit sliders** — per-sensor dry / green-low / green-high / high limits that drive the zone + pulsing logic
+- **Dry threshold sliders** — per-sensor `resume_vwc` (pushed to firmware automatically)
 - **Measurement intervals** — fixed firmware constants (5 s read / 10 s telemetry); change in `config.h` and reflash
-
-> The colour chip uses emoji so it works with zero HACS dependencies. To colour
-> the gauges themselves red at *both* ends, swap them for a custom card
-> (Mushroom, button-card, or apexcharts-card) driven by the
-> `sensor.irrigation_sensor_<n>_zone` `color` attribute.
 
 ### Sending commands from HA
 
@@ -174,12 +139,11 @@ data:
   topic: irrigation/valve/command
   payload: '{"action": "configure", "pulse_duration_s": 30, "settle_duration_s": 300, "max_runtime_day_s": 3600}'
 
-# Sensor dry threshold on the device is held at 0 by HA (auto-trigger disabled).
-# HA owns the dry/high/green limits; the device only enforces hard safety caps.
+# Set per-sensor dry threshold (auto-trigger fires when VWC drops below this)
 service: mqtt.publish
 data:
   topic: irrigation/sensor/0/config
-  payload: '{"resume_vwc": 0.0}'
+  payload: '{"resume_vwc": 25.0}'
 ```
 
 ## Scaling to More Sensors
@@ -187,18 +151,17 @@ data:
 1. Increment `SENSOR_COUNT` in `firmware/src/config.h`.
 2. Add a `Pin::SENSOR_N` constant and a `VH400` entry in `firmware/src/main.cpp`.
 3. Re-flash the firmware — MQTT Discovery automatically registers the new sensor entity in HA.
-4. In `homeassistant/packages/irrigation.yaml`: add the four limit `input_number`s
-   (`dry` / `green_low` / `green_high` / `wet`) and an `Irrigation Sensor N Zone`
-   template sensor, extend the `zones` list in `Irrigation Pulse Decision`, and
-   add `resume_vwc: 0.0` to the **Sync Firmware On Connect** automation.
+4. In `homeassistant/packages/irrigation.yaml`: add a `resume_vwc` `input_number`,
+   an Apply Sensor N Config automation, and extend Sync Firmware On Connect.
 
 No valve hardware changes are required.
 
 ### Entity IDs (MQTT Discovery)
 
-Discovery entities are grouped under device **Irrigation Controller** and use IDs
-such as `sensor.irrigation_controller_irrigation_sensor_0_vwc`. Package template
-sensors use shorter IDs (`sensor.irrigation_sensor_0_zone`, etc.). See
+Discovery entities use short IDs such as `sensor.irrigation_sensor_0_vwc`,
+`binary_sensor.irrigation_valve`, and `sensor.irrigation_valve_state`. If you
+upgraded from an older build, delete stale `irrigation_controller_irrigation_*`
+entities from **Settings → Devices & services → MQTT**. See
 [docs/theory_of_operation.md](docs/theory_of_operation.md) for the full table.
 
 ## Project Structure

@@ -10,20 +10,17 @@ views:
         title: Moisture History (48 h)
         hours_to_show: 48
         entities:
-          - entity: sensor.irrigation_controller_irrigation_sensor_0_vwc
+          - entity: sensor.irrigation_sensor_0_vwc
             name: Sensor 0
-          - entity: sensor.irrigation_controller_irrigation_sensor_1_vwc
+          - entity: sensor.irrigation_sensor_1_vwc
             name: Sensor 1
 
       # ── Current Moisture ────────────────────────────────────────────────────
-      # NOTE: the built-in gauge severity can only colour the LOW end red. The
-      # five-zone colour (red at both ends) is shown in the Zone & Pulsing card
-      # below, which is the source of truth for sensor colour.
       - type: horizontal-stack
         cards:
           - type: gauge
             name: Sensor 0
-            entity: sensor.irrigation_controller_irrigation_sensor_0_vwc
+            entity: sensor.irrigation_sensor_0_vwc
             unit: "%"
             min: 0
             max: 60
@@ -34,7 +31,7 @@ views:
 
           - type: gauge
             name: Sensor 1
-            entity: sensor.irrigation_controller_irrigation_sensor_1_vwc
+            entity: sensor.irrigation_sensor_1_vwc
             unit: "%"
             min: 0
             max: 60
@@ -42,42 +39,6 @@ views:
               green: 30
               yellow: 20
               red: 0
-
-      # ── Fault Alert (only visible when an error code is active) ────────────
-      - type: conditional
-        conditions:
-          - condition: state
-            entity: sensor.irrigation_controller_irrigation_error_code
-            state_not: "none"
-        card:
-          type: markdown
-          content: >
-            ## ⚠ Valve Fault: {{ states('sensor.irrigation_controller_irrigation_error_code') }}
-
-            | Code | Meaning |
-            |------|---------|
-            | E001 | Pulse exceeded 120 s hard limit |
-            | E002 | Hourly runtime limit reached (600 s/hr) |
-            | E003 | Daily runtime limit reached (see Max Runtime Today slider) |
-            | E004 | Pulse request denied |
-
-            Use the **Clear Fault** button in Manual Controls to resume operation.
-
-      # ── Zone & Pulsing Status ───────────────────────────────────────────────
-      - type: markdown
-        title: Zone & Pulsing Status
-        content: >-
-          {%- set ec = {'green':'🟢','yellow':'🟡','red':'🔴','grey':'⚪'} -%}
-          {%- set ns = namespace(lines=['### Sensor Zones']) -%}
-          {%- for i in [0, 1] -%}
-            {%- set e = 'sensor.irrigation_sensor_' ~ i ~ '_zone' -%}
-            {%- set c = state_attr(e, 'color') or 'grey' -%}
-            {%- set z = states(e) | replace('_', ' ') -%}
-            {%- set ns.lines = ns.lines + [ec[c] ~ ' **Sensor ' ~ i ~ '** — ' ~ (state_attr(e, 'vwc') | default('?')) ~ '% · ' ~ z] -%}
-          {%- endfor -%}
-          {%- set on = is_state('sensor.irrigation_pulse_decision', 'on') -%}
-          {%- set ns.lines = ns.lines + ['', '### Pulsing', ('💧 **ON**' if on else '⏹️ **OFF**'), '_' ~ (state_attr('sensor.irrigation_pulse_decision', 'reason') | default('') | trim) ~ '_'] -%}
-          {{ ns.lines | join('\n') }}
 
       # ── Valve Status ────────────────────────────────────────────────────────
       - type: entities
@@ -85,34 +46,26 @@ views:
         entities:
           - entity: binary_sensor.irrigation_controller_online
             name: Controller
-          - entity: binary_sensor.irrigation_controller_irrigation_valve
+          - entity: binary_sensor.irrigation_valve
             name: Valve
-          - entity: sensor.irrigation_controller_irrigation_valve_state
+          - entity: sensor.irrigation_valve_state
             name: State
-          - entity: sensor.irrigation_controller_irrigation_error_code
-            name: Error Code
-          - entity: sensor.irrigation_pulse_decision
-            name: Pulsing Decision
-          - type: attribute
-            entity: sensor.irrigation_pulse_decision
-            attribute: reason
-            name: Reason
-          - entity: sensor.irrigation_controller_irrigation_valve_pulse_count
+          - entity: sensor.irrigation_valve_pulse_count
             name: Pulse Count
-          - entity: sensor.irrigation_controller_irrigation_valve_runtime_today
+          - entity: sensor.irrigation_valve_runtime_today
             name: Runtime Today
-          - entity: sensor.irrigation_controller_irrigation_valve_runtime_hour
+          - entity: sensor.irrigation_valve_runtime_hour
             name: Runtime This Hour
 
       # ── Manual Controls ─────────────────────────────────────────────────────
       - type: entities
         title: Manual Controls
         entities:
-          - entity: button.irrigation_controller_irrigation_valve_pulse
+          - entity: button.irrigation_valve_pulse
             name: Pulse Valve
-          - entity: button.irrigation_controller_irrigation_valve_close
+          - entity: button.irrigation_valve_close
             name: Force Close
-          - entity: button.irrigation_controller_irrigation_clear_fault
+          - entity: button.irrigation_clear_fault
             name: Clear Fault
 
       # ── Valve Timing ────────────────────────────────────────────────────────
@@ -125,43 +78,20 @@ views:
                 name: Pulse Duration
               - entity: input_number.irrigation_settle_duration
                 name: Settle Duration
-              - entity: input_number.irrigation_max_runtime_day_min
-                name: Max Runtime Today
           - type: markdown
             content: >
               Pulse: **{{ states('sensor.pulse_duration_display') }}**
               &nbsp;&nbsp;|&nbsp;&nbsp;
               Settle: **{{ states('sensor.settle_duration_display') }}**
-              &nbsp;&nbsp;|&nbsp;&nbsp;
-              Daily cap: **{{ states('input_number.irrigation_max_runtime_day_min') | int(0) }}** min
 
-      # ── Moisture Limits ─────────────────────────────────────────────────────
-      # Per-sensor thresholds, ordered low → high:
-      #   Dry Limit ≤ Green Low ≤ Green High ≤ High Limit
-      - type: vertical-stack
-        cards:
-          - type: entities
-            title: Sensor 0 Limits
-            entities:
-              - entity: input_number.irrigation_sensor0_resume_vwc
-                name: Dry Limit (red below)
-              - entity: input_number.irrigation_sensor0_green_low
-                name: Green Low (green starts)
-              - entity: input_number.irrigation_sensor0_green_high
-                name: Green High (green ends)
-              - entity: input_number.irrigation_sensor0_wet_limit
-                name: High Limit (red above)
-          - type: entities
-            title: Sensor 1 Limits
-            entities:
-              - entity: input_number.irrigation_sensor1_resume_vwc
-                name: Dry Limit (red below)
-              - entity: input_number.irrigation_sensor1_green_low
-                name: Green Low (green starts)
-              - entity: input_number.irrigation_sensor1_green_high
-                name: Green High (green ends)
-              - entity: input_number.irrigation_sensor1_wet_limit
-                name: High Limit (red above)
+      # ── Dry Thresholds ──────────────────────────────────────────────────────
+      - type: entities
+        title: Dry Thresholds
+        entities:
+          - entity: input_number.irrigation_sensor0_resume_vwc
+            name: Sensor 0 Resume VWC
+          - entity: input_number.irrigation_sensor1_resume_vwc
+            name: Sensor 1 Resume VWC
 
       # ── Measurement Intervals (firmware constants — change in config.h + reflash) ─
       - type: markdown

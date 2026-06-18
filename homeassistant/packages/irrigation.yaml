@@ -6,28 +6,16 @@
 # This package only contains HA-native helpers and automations.
 #
 # ── Control model ───────────────────────────────────────────────────────────
-# Home Assistant is the authoritative controller. The firmware's on-device
-# auto-trigger is neutralised by pushing resume_vwc = 0.0 to every sensor (a
-# real VWC reading can never fall below 0, so the firmware never self-pulses).
-# HA then drives the valve exclusively via pulse / close commands. The firmware
-# still enforces its hard safety limits (max pulse, hourly/daily runtime, settle
-# gap, MQTT-loss failsafe) regardless of what HA requests.
-#
-# Each sensor is evaluated against four thresholds (low → high):
-#   dry limit ≤ green-band low ≤ green-band high ≤ high limit
-#
-#   VWC ≤ dry limit ............ red  (dry) ......... → wants pulse ON
-#   dry < VWC < green low ...... yellow (low) ....... → wants pulse ON
-#   green low ≤ VWC ≤ green high green (target) ..... → pulse OFF
-#   green high < VWC < high .... yellow (high) ...... → wants pulse OFF
-#   VWC ≥ high limit ........... red  (saturated) ... → pulse OFF
-#
-# Conflict rule (single shared valve): DRY WINS — if any sensor wants water we
-# irrigate, even if another sensor is wetter.
+# Firmware is the authoritative controller for when to water. On-device
+# auto-trigger fires when any sensor VWC drops below its resume_vwc threshold.
+# HA pushes slider values to the device and provides monitoring, manual
+# override (pulse / close / clear_fault), and alerts. Firmware still enforces
+# hard safety limits (max pulse, hourly/daily runtime, settle gap, MQTT-loss
+# failsafe) independently of HA.
 #
 # Topic structure
 #   irrigation/sensor/<id>/telemetry  →  per-sensor VWC readings
-#   irrigation/sensor/<id>/config     ←  per-sensor dry threshold (forced to 0)
+#   irrigation/sensor/<id>/config     ←  per-sensor dry threshold (resume_vwc)
 #   irrigation/valve/telemetry        →  valve state + runtime counters
 #   irrigation/valve/command          ←  pulse / close / clear_fault / configure
 #   irrigation/valve/status           →  online / offline (LWT, retained)
@@ -54,18 +42,9 @@ input_number:
     unit_of_measurement: "s"
     icon: mdi:timer-sand
 
-  irrigation_max_runtime_day_min:
-    name: "Max Runtime Today"
-    min: 1
-    max: 480
-    step: 5
-    initial: 60
-    unit_of_measurement: min
-    icon: mdi:timer-lock-outline
-
-  # ── Sensor 0 moisture limits (used by HA decision logic) ──
+  # Per-sensor dry thresholds — changes are pushed to firmware via automations below
   irrigation_sensor0_resume_vwc:
-    name: "Sensor 0 Dry Limit"
+    name: "Sensor 0 Resume VWC"
     min: 5
     max: 60
     step: 1
@@ -73,89 +52,14 @@ input_number:
     unit_of_measurement: "%"
     icon: mdi:water-alert-outline
 
-  irrigation_sensor0_green_low:
-    name: "Sensor 0 Green Low"
-    min: 5
-    max: 60
-    step: 1
-    initial: 30
-    unit_of_measurement: "%"
-    icon: mdi:arrow-collapse-up
-
-  irrigation_sensor0_green_high:
-    name: "Sensor 0 Green High"
-    min: 5
-    max: 60
-    step: 1
-    initial: 40
-    unit_of_measurement: "%"
-    icon: mdi:arrow-collapse-down
-
-  irrigation_sensor0_wet_limit:
-    name: "Sensor 0 High Limit"
-    min: 5
-    max: 60
-    step: 1
-    initial: 50
-    unit_of_measurement: "%"
-    icon: mdi:water-plus-outline
-
-  # ── Sensor 1 moisture limits ──
   irrigation_sensor1_resume_vwc:
-    name: "Sensor 1 Dry Limit"
+    name: "Sensor 1 Resume VWC"
     min: 5
     max: 60
     step: 1
     initial: 25
     unit_of_measurement: "%"
     icon: mdi:water-alert-outline
-
-  irrigation_sensor1_green_low:
-    name: "Sensor 1 Green Low"
-    min: 5
-    max: 60
-    step: 1
-    initial: 30
-    unit_of_measurement: "%"
-    icon: mdi:arrow-collapse-up
-
-  irrigation_sensor1_green_high:
-    name: "Sensor 1 Green High"
-    min: 5
-    max: 60
-    step: 1
-    initial: 40
-    unit_of_measurement: "%"
-    icon: mdi:arrow-collapse-down
-
-  irrigation_sensor1_wet_limit:
-    name: "Sensor 1 High Limit"
-    min: 5
-    max: 60
-    step: 1
-    initial: 50
-    unit_of_measurement: "%"
-    icon: mdi:water-plus-outline
-
-  # Informational only — intervals are compile-time constants in firmware/src/config.h
-  # (Sensor::READ_INTERVAL_MS, TELEMETRY_INTERVAL_MS). Not sent to the device.
-  irrigation_sensor_interval:
-    name: "Sensor Read Interval"
-    min: 2
-    max: 60
-    step: 1
-    initial: 5
-    unit_of_measurement: "s"
-    icon: mdi:update
-
-  irrigation_telemetry_interval:
-    name: "Telemetry Publish Interval"
-    min: 5
-    max: 120
-    step: 5
-    initial: 10
-    unit_of_measurement: "s"
-    icon: mdi:upload-network-outline
 
 # ── Template sensors ───────────────────────────────────────────────────────────
 template:
@@ -172,103 +76,6 @@ template:
           {% set s = states('input_number.irrigation_settle_duration') | int(0) %}
           {{ s // 60 }}m {{ '%02d' % (s % 60) }}s
 
-      # ── Per-sensor zone classification ──
-      # state = dry | low_yellow | green | high_yellow | wet | unknown
-      - name: "Irrigation Sensor 0 Zone"
-        unique_id: irrigation_sensor_0_zone
-        state: >
-          {% set v = states('sensor.irrigation_controller_irrigation_sensor_0_vwc') | float(-1) %}
-          {% set dry = states('input_number.irrigation_sensor0_resume_vwc') | float(0) %}
-          {% set gl = [states('input_number.irrigation_sensor0_green_low') | float(0), dry] | max %}
-          {% set gh = [states('input_number.irrigation_sensor0_green_high') | float(0), gl] | max %}
-          {% set wet = [states('input_number.irrigation_sensor0_wet_limit') | float(0), gh] | max %}
-          {% if v < 0 %}unknown
-          {% elif v <= dry %}dry
-          {% elif v < gl %}low_yellow
-          {% elif v <= gh %}green
-          {% elif v < wet %}high_yellow
-          {% else %}wet{% endif %}
-        attributes:
-          vwc: "{{ states('sensor.irrigation_controller_irrigation_sensor_0_vwc') | float(0) | round(1) }}"
-          dry: "{{ states('input_number.irrigation_sensor0_resume_vwc') | float(0) | round(1) }}"
-          wet: "{{ states('input_number.irrigation_sensor0_wet_limit') | float(0) | round(1) }}"
-          color: >
-            {% set v = states('sensor.irrigation_controller_irrigation_sensor_0_vwc') | float(-1) %}
-            {% set dry = states('input_number.irrigation_sensor0_resume_vwc') | float(0) %}
-            {% set gl = [states('input_number.irrigation_sensor0_green_low') | float(0), dry] | max %}
-            {% set gh = [states('input_number.irrigation_sensor0_green_high') | float(0), gl] | max %}
-            {% set wet = [states('input_number.irrigation_sensor0_wet_limit') | float(0), gh] | max %}
-            {% if v < 0 %}grey
-            {% elif v <= dry or v >= wet %}red
-            {% elif v < gl or v > gh %}yellow
-            {% else %}green{% endif %}
-
-      - name: "Irrigation Sensor 1 Zone"
-        unique_id: irrigation_sensor_1_zone
-        state: >
-          {% set v = states('sensor.irrigation_controller_irrigation_sensor_1_vwc') | float(-1) %}
-          {% set dry = states('input_number.irrigation_sensor1_resume_vwc') | float(0) %}
-          {% set gl = [states('input_number.irrigation_sensor1_green_low') | float(0), dry] | max %}
-          {% set gh = [states('input_number.irrigation_sensor1_green_high') | float(0), gl] | max %}
-          {% set wet = [states('input_number.irrigation_sensor1_wet_limit') | float(0), gh] | max %}
-          {% if v < 0 %}unknown
-          {% elif v <= dry %}dry
-          {% elif v < gl %}low_yellow
-          {% elif v <= gh %}green
-          {% elif v < wet %}high_yellow
-          {% else %}wet{% endif %}
-        attributes:
-          vwc: "{{ states('sensor.irrigation_controller_irrigation_sensor_1_vwc') | float(0) | round(1) }}"
-          dry: "{{ states('input_number.irrigation_sensor1_resume_vwc') | float(0) | round(1) }}"
-          wet: "{{ states('input_number.irrigation_sensor1_wet_limit') | float(0) | round(1) }}"
-          color: >
-            {% set v = states('sensor.irrigation_controller_irrigation_sensor_1_vwc') | float(-1) %}
-            {% set dry = states('input_number.irrigation_sensor1_resume_vwc') | float(0) %}
-            {% set gl = [states('input_number.irrigation_sensor1_green_low') | float(0), dry] | max %}
-            {% set gh = [states('input_number.irrigation_sensor1_green_high') | float(0), gl] | max %}
-            {% set wet = [states('input_number.irrigation_sensor1_wet_limit') | float(0), gh] | max %}
-            {% if v < 0 %}grey
-            {% elif v <= dry or v >= wet %}red
-            {% elif v < gl or v > gh %}yellow
-            {% else %}green{% endif %}
-
-      # ── Master pulse decision + human-readable reason ──
-      # state = on | off    (drives the pulse-driver and stop automations)
-      - name: "Irrigation Pulse Decision"
-        unique_id: irrigation_pulse_decision
-        icon: mdi:water-pump
-        state: >
-          {% set zones = [states('sensor.irrigation_sensor_0_zone'),
-                          states('sensor.irrigation_sensor_1_zone')] %}
-          {% if 'dry' in zones %}on
-          {% elif 'wet' in zones %}off
-          {% elif zones | reject('equalto', 'green') | list | length == 0 %}off
-          {% elif 'low_yellow' in zones %}on
-          {% elif 'high_yellow' in zones %}off
-          {% else %}off{% endif %}
-        attributes:
-          reason: >
-            {% set e = ['sensor.irrigation_sensor_0_zone',
-                        'sensor.irrigation_sensor_1_zone'] %}
-            {% set zones = [states(e[0]), states(e[1])] %}
-            {% if 'dry' in zones %}
-              {% set i = zones.index('dry') %}
-              Sensor {{ i }} dry ({{ state_attr(e[i], 'vwc') }}% ≤ {{ state_attr(e[i], 'dry') }}% dry limit)
-            {% elif 'wet' in zones %}
-              {% set i = zones.index('wet') %}
-              Sensor {{ i }} saturated ({{ state_attr(e[i], 'vwc') }}% ≥ {{ state_attr(e[i], 'wet') }}% high limit)
-            {% elif zones | reject('equalto', 'green') | list | length == 0 %}
-              All sensors in target range
-            {% elif 'low_yellow' in zones %}
-              {% set i = zones.index('low_yellow') %}
-              Sensor {{ i }} trending dry (yellow-low)
-            {% elif 'high_yellow' in zones %}
-              {% set i = zones.index('high_yellow') %}
-              Sensor {{ i }} trending wet (yellow-high)
-            {% else %}
-              Waiting for sensor data
-            {% endif %}
-
 # ── Automations ────────────────────────────────────────────────────────────────
 automation:
   # -- Alerts --
@@ -276,25 +83,13 @@ automation:
     id: irrigation_valve_fault_alert
     trigger:
       - platform: state
-        entity_id: sensor.irrigation_controller_irrigation_valve_state
+        entity_id: sensor.irrigation_valve_state
         to: "fault"
     action:
       - service: persistent_notification.create
         data:
-          title: "Irrigation Fault {{ states('sensor.irrigation_controller_irrigation_error_code') }}"
-          message: >-
-            {%- set code = states('sensor.irrigation_controller_irrigation_error_code') -%}
-            {%- if code == 'E001' -%}
-            Pulse exceeded 120 s hard limit. Valve force-closed.
-            {%- elif code == 'E002' -%}
-            Hourly runtime limit reached (600 s/hr). Wait for the hour window to reset or tap Clear Fault.
-            {%- elif code == 'E003' -%}
-            Daily runtime limit reached ({{ states('input_number.irrigation_max_runtime_day_min') | int }} min cap). Raise the slider or tap Clear Fault after the day window resets.
-            {%- elif code == 'E004' -%}
-            Pulse request denied (valve not idle or already in fault).
-            {%- else -%}
-            Valve entered fault state (code: {{ code }}). Check the controller.
-            {%- endif -%}
+          title: "Irrigation Fault"
+          message: "Valve entered fault state. Check the controller."
 
   - alias: "Irrigation Controller Offline Alert"
     id: irrigation_controller_offline_alert
@@ -318,7 +113,6 @@ automation:
         entity_id:
           - input_number.irrigation_pulse_duration
           - input_number.irrigation_settle_duration
-          - input_number.irrigation_max_runtime_day_min
     action:
       - delay: "00:00:01"
       - service: mqtt.publish
@@ -327,17 +121,40 @@ automation:
           payload: >-
             {"action":"configure",
              "pulse_duration_s":{{ states('input_number.irrigation_pulse_duration') | int }},
-             "settle_duration_s":{{ states('input_number.irrigation_settle_duration') | int }},
-             "max_runtime_day_s":{{ states('input_number.irrigation_max_runtime_day_min') | int * 60 }}}
+             "settle_duration_s":{{ states('input_number.irrigation_settle_duration') | int }}}
+
+  # -- Sensor dry thresholds: push slider changes to firmware --
+  - alias: "Irrigation Apply Sensor 0 Config"
+    id: irrigation_apply_sensor0_config
+    mode: restart
+    trigger:
+      - platform: state
+        entity_id: input_number.irrigation_sensor0_resume_vwc
+    action:
+      - delay: "00:00:01"
+      - service: mqtt.publish
+        data:
+          topic: "irrigation/sensor/0/config"
+          payload: >-
+            {"resume_vwc":{{ states('input_number.irrigation_sensor0_resume_vwc') | float }}}
+
+  - alias: "Irrigation Apply Sensor 1 Config"
+    id: irrigation_apply_sensor1_config
+    mode: restart
+    trigger:
+      - platform: state
+        entity_id: input_number.irrigation_sensor1_resume_vwc
+    action:
+      - delay: "00:00:01"
+      - service: mqtt.publish
+        data:
+          topic: "irrigation/sensor/1/config"
+          payload: >-
+            {"resume_vwc":{{ states('input_number.irrigation_sensor1_resume_vwc') | float }}}
 
   # -- Sync firmware state on (re)connect ──────────────────────────────────────
   # Fired on HA start and every time the controller comes online, so a firmware
-  # reboot always ends up with the same config as the HA sliders.
-  #
-  # 1. Neutralise the on-device auto-trigger (resume_vwc = 0.0 so no real
-  #    reading ever crosses it; HA drives the valve exclusively).
-  # 2. Push valve timing and daily runtime cap from HA sliders (firmware defaults
-  #    otherwise 30 s pulse, 300 s settle, 60 min/day).
+  # reboot ends up with the same resume_vwc and valve timing as the HA sliders.
   - alias: "Irrigation Sync Firmware On Connect"
     id: irrigation_sync_fw_on_connect
     mode: restart
@@ -349,68 +166,20 @@ automation:
         to: "on"
     action:
       - delay: "00:00:02"
-      # Disable firmware auto-trigger
       - service: mqtt.publish
         data:
           topic: "irrigation/sensor/0/config"
-          payload: '{"resume_vwc": 0.0}'
+          payload: >-
+            {"resume_vwc":{{ states('input_number.irrigation_sensor0_resume_vwc') | float }}}
       - service: mqtt.publish
         data:
           topic: "irrigation/sensor/1/config"
-          payload: '{"resume_vwc": 0.0}'
-      # Re-assert valve timing from HA sliders
+          payload: >-
+            {"resume_vwc":{{ states('input_number.irrigation_sensor1_resume_vwc') | float }}}
       - service: mqtt.publish
         data:
           topic: "irrigation/valve/command"
           payload: >-
             {"action":"configure",
              "pulse_duration_s":{{ states('input_number.irrigation_pulse_duration') | int }},
-             "settle_duration_s":{{ states('input_number.irrigation_settle_duration') | int }},
-             "max_runtime_day_s":{{ states('input_number.irrigation_max_runtime_day_min') | int * 60 }}}
-
-  # -- Pulse driver: while the decision is ON and the valve is idle, request a
-  #    pulse. The firmware gates the actual open via its settle/runtime limits,
-  #    so re-requesting on a short cadence is safe. --
-  - alias: "Irrigation Pulse Driver"
-    id: irrigation_pulse_driver
-    mode: single
-    trigger:
-      - platform: time_pattern
-        seconds: "/30"
-      - platform: state
-        entity_id: sensor.irrigation_pulse_decision
-        to: "on"
-    condition:
-      - condition: state
-        entity_id: sensor.irrigation_pulse_decision
-        state: "on"
-      - condition: state
-        entity_id: binary_sensor.irrigation_controller_online
-        state: "on"
-      - condition: state
-        entity_id: sensor.irrigation_controller_irrigation_valve_state
-        state: "idle"
-    action:
-      - service: mqtt.publish
-        data:
-          topic: "irrigation/valve/command"
-          payload: '{"action": "pulse"}'
-
-  # -- Stop: when the decision turns OFF, force the valve closed (handles the
-  #    "saturated / high limit" case mid-pulse; harmless when already idle). --
-  - alias: "Irrigation Stop On Decision Off"
-    id: irrigation_stop_on_decision_off
-    mode: single
-    trigger:
-      - platform: state
-        entity_id: sensor.irrigation_pulse_decision
-        to: "off"
-    condition:
-      - condition: state
-        entity_id: binary_sensor.irrigation_controller_online
-        state: "on"
-    action:
-      - service: mqtt.publish
-        data:
-          topic: "irrigation/valve/command"
-          payload: '{"action": "close"}'
+             "settle_duration_s":{{ states('input_number.irrigation_settle_duration') | int }}}
