@@ -83,7 +83,7 @@ automation:
     id: irrigation_valve_fault_alert
     trigger:
       - platform: state
-        entity_id: sensor.irrigation_valve_state
+        entity_id: sensor.irrigation_controller_irrigation_valve_state
         to: "fault"
     action:
       - service: persistent_notification.create

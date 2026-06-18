@@ -10,9 +10,9 @@ views:
         title: Moisture History (48 h)
         hours_to_show: 48
         entities:
-          - entity: sensor.irrigation_sensor_0_vwc
+          - entity: sensor.irrigation_controller_irrigation_sensor_0_vwc
             name: Sensor 0
-          - entity: sensor.irrigation_sensor_1_vwc
+          - entity: sensor.irrigation_controller_irrigation_sensor_1_vwc
             name: Sensor 1
 
       # ── Current Moisture ────────────────────────────────────────────────────
@@ -20,7 +20,7 @@ views:
         cards:
           - type: gauge
             name: Sensor 0
-            entity: sensor.irrigation_sensor_0_vwc
+            entity: sensor.irrigation_controller_irrigation_sensor_0_vwc
             unit: "%"
             min: 0
             max: 60
@@ -31,7 +31,7 @@ views:
 
           - type: gauge
             name: Sensor 1
-            entity: sensor.irrigation_sensor_1_vwc
+            entity: sensor.irrigation_controller_irrigation_sensor_1_vwc
             unit: "%"
             min: 0
             max: 60
@@ -46,9 +46,9 @@ views:
         entities:
           - entity: binary_sensor.irrigation_controller_online
             name: Controller
-          - entity: binary_sensor.irrigation_valve
+          - entity: binary_sensor.irrigation_controller_irrigation_valve
             name: Valve
-          - entity: sensor.irrigation_valve_state
+          - entity: sensor.irrigation_controller_irrigation_valve_state
             name: State
           - entity: sensor.irrigation_valve_pulse_count
             name: Pulse Count
