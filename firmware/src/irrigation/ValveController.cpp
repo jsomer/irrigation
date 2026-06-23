@@ -26,16 +26,13 @@ void ValveController::begin() {
   LOG_I(TAG, "Valve initialised on pin %d", _pin);
 }
 
-// ── Public API ────────────────────────────────────────────────────────────────
-
 bool ValveController::requestPulse() {
   if (_state != ValveState::IDLE) {
     LOG_W(TAG, "Pulse request ignored: state=%d", (int)_state);
     return false;
   }
 
-  // Check each safety limit individually to produce a precise error code.
-  if (_runtimeHourS >= Safety::MAX_RUNTIME_HOUR_S) {
+  if (_runtimeHourS >= _params.maxRuntimeHourS) {
     enterFault(ErrorCode::HOURLY_LIMIT, "hourly runtime limit exceeded");
     return false;
   }
@@ -74,25 +71,39 @@ void ValveController::clearFault() {
 }
 
 bool ValveController::setParams(const ValveParams& p) {
-  if (p.pulseDurationS > Safety::MAX_PULSE_DURATION_S) {
-    LOG_W(TAG, "pulseDuration %d clamped to %d",
-             p.pulseDurationS, Safety::MAX_PULSE_DURATION_S);
+  _params.maxPulseDurationS = min((uint16_t)Safety::EMERGENCY_MAX_PULSE_S, p.maxPulseDurationS);
+  if (p.maxPulseDurationS > Safety::EMERGENCY_MAX_PULSE_S) {
+    LOG_W(TAG, "maxPulseDuration %d clamped to %lu",
+             p.maxPulseDurationS, Safety::EMERGENCY_MAX_PULSE_S);
   }
+
+  uint16_t pulse = min(p.pulseDurationS, _params.maxPulseDurationS);
+  if (p.pulseDurationS > _params.maxPulseDurationS) {
+    LOG_W(TAG, "pulseDuration %d clamped to maxPulse %d",
+             p.pulseDurationS, _params.maxPulseDurationS);
+  }
+  _params.pulseDurationS = pulse;
+
   if (p.settleDurationS < Safety::MIN_SETTLE_S) {
     LOG_W(TAG, "settleDuration %d clamped to %d",
              p.settleDurationS, Safety::MIN_SETTLE_S);
   }
-  _params.pulseDurationS  = min((uint16_t)Safety::MAX_PULSE_DURATION_S, p.pulseDurationS);
-  _params.settleDurationS = max((uint16_t)Safety::MIN_SETTLE_S,         p.settleDurationS);
-  _params.maxRuntimeDayS  = constrain(p.maxRuntimeDayS,
-                                      Safety::MIN_RUNTIME_DAY_S,
-                                      Safety::MAX_RUNTIME_DAY_HARD_CAP_S);
-  LOG_I(TAG, "Params: pulse=%d s settle=%d s max_day=%lu s",
-           _params.pulseDurationS, _params.settleDurationS, _params.maxRuntimeDayS);
+  _params.settleDurationS = max((uint16_t)Safety::MIN_SETTLE_S, p.settleDurationS);
+
+  _params.maxRuntimeDayS = constrain(p.maxRuntimeDayS,
+                                     Safety::MIN_RUNTIME_DAY_S,
+                                     Safety::EMERGENCY_MAX_RUNTIME_DAY_S);
+  _params.maxRuntimeHourS = min(p.maxRuntimeHourS, Safety::EMERGENCY_MAX_RUNTIME_HOUR_S);
+  if (p.maxRuntimeHourS > Safety::EMERGENCY_MAX_RUNTIME_HOUR_S) {
+    LOG_W(TAG, "maxRuntimeHour %lu clamped to %lu",
+             p.maxRuntimeHourS, Safety::EMERGENCY_MAX_RUNTIME_HOUR_S);
+  }
+
+  LOG_I(TAG, "Params: pulse=%d s max_pulse=%d s settle=%d s max_hr=%lu s max_day=%lu s",
+           _params.pulseDurationS, _params.maxPulseDurationS, _params.settleDurationS,
+           _params.maxRuntimeHourS, _params.maxRuntimeDayS);
   return true;
 }
-
-// ── State machine ─────────────────────────────────────────────────────────────
 
 void ValveController::update() {
   tickTimeWindows();
@@ -100,20 +111,20 @@ void ValveController::update() {
   switch (_state) {
     case ValveState::PULSING: {
       uint32_t elapsed = currentPulseRuntimeS();
+      uint32_t limitS  = effectivePulseDurationS();
 
-      if (elapsed >= Safety::MAX_PULSE_DURATION_S) {
-        LOG_W(TAG, "Hard pulse limit hit (%d s)", elapsed);
+      if (elapsed >= Safety::EMERGENCY_MAX_PULSE_S) {
+        LOG_W(TAG, "Emergency pulse limit hit (%lu s)", elapsed);
         closeValve();
-        enterFault(ErrorCode::MAX_PULSE_TIME, "pulse exceeded 120 s hard limit");
+        enterFault(ErrorCode::MAX_PULSE_TIME, "pulse exceeded emergency hard limit");
         break;
       }
 
-      if (elapsed >= _params.pulseDurationS) {
+      if (elapsed >= limitS) {
         closeValve();
         _settleStartMs = millis();
         _state = ValveState::SETTLING;
-        LOG_I(TAG, "Pulse done (%d s), settling %d s",
-                 elapsed, _params.settleDurationS);
+        LOG_I(TAG, "Pulse done (%lu s), settling %d s", elapsed, _params.settleDurationS);
       }
       break;
     }
@@ -148,14 +159,12 @@ ValveTelemetry ValveController::telemetry() const {
 }
 
 bool ValveController::canOpen() const {
-  if (_state == ValveState::FAULT)    return false;
-  if (_valveOpen)                     return false;
-  if (_runtimeHourS  >= Safety::MAX_RUNTIME_HOUR_S) return false;
-  if (_runtimeTodayS >= _params.maxRuntimeDayS)   return false;
+  if (_state == ValveState::FAULT) return false;
+  if (_valveOpen)                  return false;
+  if (_runtimeHourS  >= _params.maxRuntimeHourS) return false;
+  if (_runtimeTodayS >= _params.maxRuntimeDayS) return false;
   return true;
 }
-
-// ── Private helpers ───────────────────────────────────────────────────────────
 
 void ValveController::openValve() {
   digitalWrite(_pin, HIGH);
@@ -198,4 +207,8 @@ void ValveController::tickTimeWindows() {
 uint32_t ValveController::currentPulseRuntimeS() const {
   if (_pulseStartMs == 0) return 0;
   return (millis() - _pulseStartMs) / 1000UL;
+}
+
+uint32_t ValveController::effectivePulseDurationS() const {
+  return min((uint32_t)_params.pulseDurationS, (uint32_t)_params.maxPulseDurationS);
 }

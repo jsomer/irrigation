@@ -107,25 +107,40 @@ All payloads are JSON. The `action` field selects the operation.
 | `pulse`       | —                                                 | Immediately start a pulse cycle          |
 | `close`       | —                                                 | Force valve closed                       |
 | `clear_fault` | —                                                 | Clear FAULT state                        |
-| `configure`   | `pulse_duration_s`, `settle_duration_s`, `max_runtime_day_s` | Valve timing + daily open-time budget |
+| `configure`   | See configure fields below | Valve timing + runtime budgets + failsafe |
 
 ```json
 {"action":"pulse"}
-{"action":"configure","pulse_duration_s":30,"settle_duration_s":300,"max_runtime_day_s":3600}
+{"action":"configure",
+ "pulse_duration_s":600,
+ "settle_duration_s":1200,
+ "max_pulse_duration_s":1200,
+ "max_runtime_day_s":7200,
+ "max_runtime_hour_s":1800,
+ "failsafe_disconnect_s":1800,
+ "auto_trigger_enabled":false}
 ```
 
-`max_runtime_day_s` is the maximum total valve-open seconds per rolling 24 h window
-(default 3600 s / 60 min; configurable via MQTT, hard cap 28 800 s).
+| Configure field | Type | Description |
+|-----------------|------|-------------|
+| `pulse_duration_s` | uint | Irrigation cycle length (valve open) |
+| `settle_duration_s` | uint | Gap after cycle before idle |
+| `max_pulse_duration_s` | uint | Max single valve-open duration (HA backstop) |
+| `max_runtime_day_s` | uint | Daily valve-open budget (rolling 24 h) |
+| `max_runtime_hour_s` | uint | Hourly valve-open budget |
+| `failsafe_disconnect_s` | uint | Close valve if MQTT lost this long |
+| `auto_trigger_enabled` | bool | On-device auto-trigger (default false; HA controls) |
 
-**Safety limits (firmware-enforced, cannot be overridden):**
+Operational limits are pushed from Home Assistant sliders. Firmware emergency ceilings (2 hr pulse, 2 hr/hr, 8 hr/day) cannot be overridden.
 
-| Limit                     | Value |
-|---------------------------|-------|
-| Max pulse duration        | 120 s |
-| Max runtime / hour        | 600 s |
-| Max runtime / day (configurable) | 60 s – 28 800 s |
-| Min settle gap            | 60 s  |
-| Failsafe disconnect close | 120 s |
+**Emergency limits (firmware only, not MQTT-configurable):**
+
+| Limit | Value |
+|-------|-------|
+| Emergency max pulse | 7200 s |
+| Emergency max runtime / hour | 7200 s |
+| Emergency max runtime / day | 28 800 s |
+| Min settle gap | 60 s |
 
 #### Sensor Config
 

@@ -1,130 +1,726 @@
-# ── Irrigation Package ────────────────────────────────────────────────────────
-# Single solenoid valve + N moisture sensors (UNO R4 WiFi via MQTT)
+# HOME ASSISTANT PACKAGE — NOT A DASHBOARD
+# Deploy ONLY to config/packages/irrigation.yaml
+# Must start with input_select/input_number — NOT "title:" or "views:"
 #
-# MQTT entities (sensors, binary sensors, buttons) are registered automatically
-# via MQTT Discovery published by the firmware on each connect.
-# This package only contains HA-native helpers and automations.
-#
-# ── Control model ───────────────────────────────────────────────────────────
-# Firmware is the authoritative controller for when to water. On-device
-# auto-trigger fires when any sensor VWC drops below its resume_vwc threshold.
-# HA pushes slider values to the device and provides monitoring, manual
-# override (pulse / close / clear_fault), and alerts. Firmware still enforces
-# hard safety limits (max pulse, hourly/daily runtime, settle gap, MQTT-loss
-# failsafe) independently of HA.
-#
-# Topic structure
-#   irrigation/sensor/<id>/telemetry  →  per-sensor VWC readings
-#   irrigation/sensor/<id>/config     ←  per-sensor dry threshold (resume_vwc)
-#   irrigation/valve/telemetry        →  valve state + runtime counters
-#   irrigation/valve/command          ←  pulse / close / clear_fault / configure
-#   irrigation/valve/status           →  online / offline (LWT, retained)
+# configuration.yaml:
+#   homeassistant:
+#     packages:
+#       irrigation: !include packages/irrigation.yaml
 # ─────────────────────────────────────────────────────────────────────────────
 
-# ── Input helpers ──────────────────────────────────────────────────────────────
+input_select:
+  irrigation_control_mode:
+    name: Irrigation Control Mode
+    options:
+      - disabled
+      - manual
+      - auto
+      - firmware_fallback
+    initial: manual
+    icon: mdi:sprinkler-variant
+
+# ── Timing & limits (minutes in UI → seconds via MQTT sync) ───────────────────
 input_number:
-  # Valve timing — changes are pushed to firmware via automations below
-  irrigation_pulse_duration:
-    name: "Pulse Duration"
+  irrigation_duration_min:
+    name: Irrigation Duration
+    min: 1
+    max: 60
+    step: 1
+    initial: 10
+    unit_of_measurement: min
+    icon: mdi:timer-play-outline
+
+  irrigation_settle_min:
+    name: Settle Duration
+    min: 5
+    max: 60
+    step: 1
+    initial: 20
+    unit_of_measurement: min
+    icon: mdi:timer-sand
+
+  irrigation_max_runtime_day_min:
+    name: Max Runtime Per Day
+    min: 10
+    max: 480
+    step: 5
+    initial: 120
+    unit_of_measurement: min
+    icon: mdi:calendar-clock
+
+  irrigation_max_runtime_hour_min:
+    name: Max Runtime Per Hour
     min: 5
     max: 120
     step: 5
     initial: 30
-    unit_of_measurement: "s"
-    icon: mdi:timer-play-outline
+    unit_of_measurement: min
+    icon: mdi:clock-outline
 
-  irrigation_settle_duration:
-    name: "Settle Duration"
-    min: 60
-    max: 1800
-    step: 30
-    initial: 300
-    unit_of_measurement: "s"
-    icon: mdi:timer-sand
+  irrigation_max_single_run_min:
+    name: Max Single Run
+    min: 1
+    max: 60
+    step: 1
+    initial: 20
+    unit_of_measurement: min
+    icon: mdi:timer-lock-outline
 
-  # Per-sensor dry thresholds — changes are pushed to firmware via automations below
+  irrigation_failsafe_disconnect_min:
+    name: MQTT Failsafe Disconnect
+    min: 2
+    max: 120
+    step: 1
+    initial: 30
+    unit_of_measurement: min
+    icon: mdi:connection
+
+  irrigation_max_cycles_per_event:
+    name: Max Cycles Per Dry Event
+    min: 1
+    max: 10
+    step: 1
+    initial: 4
+    icon: mdi:counter
+
+  irrigation_system_gph:
+    name: System Flow Rate
+    min: 1
+    max: 50
+    step: 0.5
+    initial: 12
+    unit_of_measurement: GPH
+    icon: mdi:water-pump
+
+  irrigation_emitter_count:
+    name: Emitter Count
+    min: 1
+    max: 100
+    step: 1
+    initial: 24
+    icon: mdi:water-opacity
+
+  # Per-sensor moisture bands
   irrigation_sensor0_resume_vwc:
-    name: "Sensor 0 Resume VWC"
+    name: Sensor 0 Resume VWC
     min: 5
     max: 60
     step: 1
-    initial: 25
+    initial: 35
     unit_of_measurement: "%"
     icon: mdi:water-alert-outline
 
   irrigation_sensor1_resume_vwc:
-    name: "Sensor 1 Resume VWC"
+    name: Sensor 1 Resume VWC
     min: 5
     max: 60
     step: 1
-    initial: 25
+    initial: 35
     unit_of_measurement: "%"
     icon: mdi:water-alert-outline
 
-# ── Template sensors ───────────────────────────────────────────────────────────
+  irrigation_sensor0_target_vwc:
+    name: Sensor 0 Target VWC
+    min: 10
+    max: 70
+    step: 1
+    initial: 44
+    unit_of_measurement: "%"
+    icon: mdi:water-check-outline
+
+  irrigation_sensor1_target_vwc:
+    name: Sensor 1 Target VWC
+    min: 10
+    max: 70
+    step: 1
+    initial: 44
+    unit_of_measurement: "%"
+    icon: mdi:water-check-outline
+
+  irrigation_sensor0_max_vwc:
+    name: Sensor 0 Max VWC
+    min: 20
+    max: 80
+    step: 1
+    initial: 50
+    unit_of_measurement: "%"
+    icon: mdi:water-off-outline
+
+  irrigation_sensor1_max_vwc:
+    name: Sensor 1 Max VWC
+    min: 20
+    max: 80
+    step: 1
+    initial: 50
+    unit_of_measurement: "%"
+    icon: mdi:water-off-outline
+
+  # Leak detection tuning
+  irrigation_min_vwc_delta:
+    name: Min VWC Delta After Irrigation
+    min: 0.1
+    max: 10
+    step: 0.1
+    initial: 1.0
+    unit_of_measurement: "%"
+    icon: mdi:chart-line-variant
+
+  irrigation_leak_check_delay_min:
+    name: Leak Check Delay
+    min: 5
+    max: 60
+    step: 5
+    initial: 20
+    unit_of_measurement: min
+    icon: mdi:timer-alert-outline
+
+  irrigation_min_gallons_for_leak_check:
+    name: Min Gallons For Leak Check
+    min: 0.1
+    max: 5
+    step: 0.1
+    initial: 0.5
+    unit_of_measurement: gal
+    icon: mdi:bucket-outline
+
+  # Cycle snapshot helpers (written by control automations)
+  irrigation_cycle_vwc_before_0:
+    name: Cycle VWC Before S0
+    min: 0
+    max: 100
+    step: 0.1
+    initial: 0
+    mode: box
+
+  irrigation_cycle_vwc_before_1:
+    name: Cycle VWC Before S1
+    min: 0
+    max: 100
+    step: 0.1
+    initial: 0
+    mode: box
+
+  irrigation_cycle_vwc_end_0:
+    name: Cycle VWC End S0
+    min: 0
+    max: 100
+    step: 0.1
+    initial: 0
+    mode: box
+
+  irrigation_cycle_vwc_end_1:
+    name: Cycle VWC End S1
+    min: 0
+    max: 100
+    step: 0.1
+    initial: 0
+    mode: box
+
+  irrigation_cycle_vwc_check_0:
+    name: Cycle VWC Check S0
+    min: 0
+    max: 100
+    step: 0.1
+    initial: 0
+    mode: box
+
+  irrigation_cycle_vwc_check_1:
+    name: Cycle VWC Check S1
+    min: 0
+    max: 100
+    step: 0.1
+    initial: 0
+    mode: box
+
+  irrigation_cycle_vwc_60m_0:
+    name: Cycle VWC 60m S0
+    min: 0
+    max: 100
+    step: 0.1
+    initial: 0
+    mode: box
+
+  irrigation_cycle_vwc_60m_1:
+    name: Cycle VWC 60m S1
+    min: 0
+    max: 100
+    step: 0.1
+    initial: 0
+    mode: box
+
+input_boolean:
+  irrigation_leak_fault:
+    name: Irrigation Leak Fault
+    icon: mdi:pipe-leak
+
+  irrigation_sensor_fault:
+    name: Irrigation Sensor Fault
+    icon: mdi:alert-circle-outline
+
+counter:
+  irrigation_cycles_this_event:
+    name: Irrigation Cycles This Event
+    initial: 0
+    step: 1
+
+# ── Entity resolution (supports old and new MQTT discovery IDs) ───────────────
 template:
   - sensor:
-      - name: "Pulse Duration Display"
-        unique_id: irrigation_pulse_dur_display
+      - name: Irrigation Valve State Resolved
+        unique_id: irrigation_valve_state_resolved
+        icon: mdi:valve
         state: >
-          {% set s = states('input_number.irrigation_pulse_duration') | int(0) %}
-          {{ s // 60 }}m {{ '%02d' % (s % 60) }}s
+          {% set ids = [
+            'sensor.irrigation_valve_state',
+            'sensor.irrigation_controller_irrigation_valve_state'
+          ] %}
+          {% set ns = namespace(val='unknown') %}
+          {% for id in ids %}
+            {% if states(id) not in ['unknown', 'unavailable', 'none'] %}
+              {% set ns.val = states(id) %}
+            {% endif %}
+          {% endfor %}
+          {{ ns.val }}
 
-      - name: "Settle Duration Display"
-        unique_id: irrigation_settle_dur_display
+      - name: Irrigation Sensor 0 VWC Resolved
+        unique_id: irrigation_sensor_0_vwc_resolved
+        unit_of_measurement: "%"
         state: >
-          {% set s = states('input_number.irrigation_settle_duration') | int(0) %}
-          {{ s // 60 }}m {{ '%02d' % (s % 60) }}s
+          {% set ids = [
+            'sensor.irrigation_sensor_0_vwc',
+            'sensor.irrigation_controller_irrigation_sensor_0_vwc'
+          ] %}
+          {% set ns = namespace(val='unknown') %}
+          {% for id in ids %}
+            {% if states(id) not in ['unknown', 'unavailable', 'none'] %}
+              {% set ns.val = states(id) %}
+            {% endif %}
+          {% endfor %}
+          {{ ns.val }}
 
-# ── Automations ────────────────────────────────────────────────────────────────
+      - name: Irrigation Sensor 1 VWC Resolved
+        unique_id: irrigation_sensor_1_vwc_resolved
+        unit_of_measurement: "%"
+        state: >
+          {% set ids = [
+            'sensor.irrigation_sensor_1_vwc',
+            'sensor.irrigation_controller_irrigation_sensor_1_vwc'
+          ] %}
+          {% set ns = namespace(val='unknown') %}
+          {% for id in ids %}
+            {% if states(id) not in ['unknown', 'unavailable', 'none'] %}
+              {% set ns.val = states(id) %}
+            {% endif %}
+          {% endfor %}
+          {{ ns.val }}
+
+      - name: Irrigation Runtime Today Resolved
+        unique_id: irrigation_runtime_today_resolved
+        unit_of_measurement: s
+        state_class: measurement
+        state: >
+          {% set ids = [
+            'sensor.irrigation_valve_runtime_today',
+            'sensor.irrigation_controller_irrigation_valve_runtime_today'
+          ] %}
+          {% set ns = namespace(val='0') %}
+          {% for id in ids %}
+            {% if states(id) not in ['unknown', 'unavailable', 'none'] %}
+              {% set ns.val = states(id) %}
+            {% endif %}
+          {% endfor %}
+          {{ ns.val }}
+
+      - name: Irrigation Runtime Hour Resolved
+        unique_id: irrigation_runtime_hour_resolved
+        unit_of_measurement: s
+        state_class: measurement
+        state: >
+          {% set ids = [
+            'sensor.irrigation_valve_runtime_hour',
+            'sensor.irrigation_controller_irrigation_valve_runtime_hour'
+          ] %}
+          {% set ns = namespace(val='0') %}
+          {% for id in ids %}
+            {% if states(id) not in ['unknown', 'unavailable', 'none'] %}
+              {% set ns.val = states(id) %}
+            {% endif %}
+          {% endfor %}
+          {{ ns.val }}
+
+      - name: Irrigation Gallons Per Minute
+        unique_id: irrigation_gallons_per_minute
+        unit_of_measurement: gal/min
+        state: >
+          {{ (states('input_number.irrigation_system_gph') | float(12) / 60) | round(3) }}
+
+      - name: Irrigation Last Cycle Gallons
+        unique_id: irrigation_last_cycle_gallons
+        unit_of_measurement: gal
+        state: >
+          {% set dur = states('input_number.irrigation_duration_min') | float(10) %}
+          {% set gpm = states('input_number.irrigation_system_gph') | float(12) / 60 %}
+          {{ (dur * gpm) | round(2) }}
+
+      - name: Irrigation Operational Status
+        unique_id: irrigation_operational_status
+        icon: mdi:state-machine
+        state: >
+          {% if is_state('input_boolean.irrigation_leak_fault', 'on') %}
+            leak_fault
+          {% elif is_state('input_boolean.irrigation_sensor_fault', 'on') %}
+            sensor_fault
+          {% else %}
+            {% set ids = [
+              'sensor.irrigation_valve_state',
+              'sensor.irrigation_controller_irrigation_valve_state'
+            ] %}
+            {% set ns = namespace(val='idle') %}
+            {% for id in ids %}
+              {% if states(id) not in ['unknown', 'unavailable', 'none'] %}
+                {% set ns.val = states(id) %}
+              {% endif %}
+            {% endfor %}
+            {% if ns.val == 'pulsing' %}
+              irrigating
+            {% elif ns.val == 'settling' %}
+              settling
+            {% elif ns.val == 'fault' %}
+              valve_fault
+            {% else %}
+              idle
+            {% endif %}
+          {% endif %}
+
+  - binary_sensor:
+      - name: Irrigation Controller Online Resolved
+        unique_id: irrigation_controller_online_resolved
+        device_class: connectivity
+        state: >
+          {% set ids = [
+            'binary_sensor.irrigation_controller_online',
+            'binary_sensor.irrigation_controller_irrigation_controller_online'
+          ] %}
+          {% set ns = namespace(val=false) %}
+          {% for id in ids %}
+            {% if is_state(id, 'on') %}
+              {% set ns.val = true %}
+            {% endif %}
+          {% endfor %}
+          {{ ns.val }}
+
+  - button:
+      - name: Irrigation Start Cycle
+        unique_id: irrigation_btn_start_cycle
+        icon: mdi:water
+        press:
+          - service: script.irrigation_begin_cycle
+
+      - name: Irrigation Force Close
+        unique_id: irrigation_btn_force_close
+        icon: mdi:valve-closed
+        press:
+          - service: script.irrigation_abort_and_close
+
+      - name: Irrigation Clear Valve Fault
+        unique_id: irrigation_btn_clear_valve_fault
+        icon: mdi:alert-remove-outline
+        press:
+          - service: mqtt.publish
+            data:
+              topic: irrigation/valve/command
+              payload: '{"action":"clear_fault"}'
+
+  - trigger:
+      - platform: state
+        entity_id:
+          - sensor.irrigation_valve_state_resolved
+          - sensor.irrigation_valve_state
+          - sensor.irrigation_controller_irrigation_valve_state
+          - input_number.irrigation_duration_min
+          - input_number.irrigation_settle_min
+      - platform: time_pattern
+        seconds: "/1"
+    sensor:
+      - name: Irrigation Valve Phase
+        unique_id: irrigation_valve_phase
+        icon: mdi:valve
+        state: >
+          {% set ids = [
+            'sensor.irrigation_valve_state',
+            'sensor.irrigation_controller_irrigation_valve_state'
+          ] %}
+          {% set ns = namespace(val='unknown', src='', elapsed=0) %}
+          {% for id in ids %}
+            {% if states(id) not in ['unknown', 'unavailable', 'none'] %}
+              {% set ns.val = states(id) %}
+              {% set ns.src = id %}
+            {% endif %}
+          {% endfor %}
+          {% if ns.src %}
+            {% set ns.elapsed = ((now() - states[ns.src].last_changed).total_seconds()) | int %}
+          {% endif %}
+          {% set pulse = states('input_number.irrigation_duration_min') | int(0) * 60 %}
+          {% set settle = states('input_number.irrigation_settle_min') | int(0) * 60 %}
+          {% if ns.val == 'pulsing' %}
+            Irrigating {{ ns.elapsed // 60 }}m {{ '%02d' % (ns.elapsed % 60) }}s / {{ pulse // 60 }}m {{ '%02d' % (pulse % 60) }}s
+          {% elif ns.val == 'settling' %}
+            Settle {{ ns.elapsed // 60 }}m {{ '%02d' % (ns.elapsed % 60) }}s / {{ settle // 60 }}m {{ '%02d' % (settle % 60) }}s
+          {% elif ns.val == 'fault' %}
+            Fault
+          {% elif ns.val == 'unknown' %}
+            Unknown
+          {% else %}
+            Idle
+          {% endif %}
+
+
+
+script:
+  irrigation_sync_firmware:
+    alias: Irrigation Sync Firmware Config
+    mode: restart
+    sequence:
+      - service: mqtt.publish
+        data:
+          topic: irrigation/valve/command
+          payload: >-
+            {"action":"configure",
+             "pulse_duration_s":{{ states('input_number.irrigation_duration_min') | int * 60 }},
+             "settle_duration_s":{{ states('input_number.irrigation_settle_min') | int * 60 }},
+             "max_runtime_day_s":{{ states('input_number.irrigation_max_runtime_day_min') | int * 60 }},
+             "max_runtime_hour_s":{{ states('input_number.irrigation_max_runtime_hour_min') | int * 60 }},
+             "max_pulse_duration_s":{{ states('input_number.irrigation_max_single_run_min') | int * 60 }},
+             "failsafe_disconnect_s":{{ states('input_number.irrigation_failsafe_disconnect_min') | int * 60 }},
+             "auto_trigger_enabled":{{ 'true' if is_state('input_select.irrigation_control_mode', 'firmware_fallback') else 'false' }}}
+
+  irrigation_begin_cycle:
+    alias: Irrigation Begin Cycle
+    mode: single
+    sequence:
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.irrigation_cycle_vwc_before_0
+        data:
+          value: "{{ states('sensor.irrigation_sensor_0_vwc_resolved') | float(0) }}"
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.irrigation_cycle_vwc_before_1
+        data:
+          value: "{{ states('sensor.irrigation_sensor_1_vwc_resolved') | float(0) }}"
+      - service: script.turn_on
+        target:
+          entity_id: script.irrigation_sync_firmware
+      - delay: "00:00:01"
+      - service: mqtt.publish
+        data:
+          topic: irrigation/valve/command
+          payload: '{"action":"pulse"}'
+      - service: counter.increment
+        target:
+          entity_id: counter.irrigation_cycles_this_event
+
+  irrigation_abort_and_close:
+    alias: Irrigation Abort And Close Valve
+    mode: restart
+    sequence:
+      - service: mqtt.publish
+        data:
+          topic: irrigation/valve/command
+          payload: '{"action":"close"}'
+
+  irrigation_set_leak_fault:
+    alias: Irrigation Set Leak Fault
+    mode: restart
+    sequence:
+      - service: input_boolean.turn_on
+        target:
+          entity_id: input_boolean.irrigation_leak_fault
+      - service: input_select.select_option
+        target:
+          entity_id: input_select.irrigation_control_mode
+        data:
+          option: manual
+      - service: script.turn_on
+        target:
+          entity_id: script.irrigation_abort_and_close
+      - service: persistent_notification.create
+        data:
+          title: Irrigation Leak Suspected
+          message: >-
+            Water ran without expected moisture increase. Auto mode disabled.
+            Clear the leak fault after inspection.
+
+  irrigation_set_sensor_fault:
+    alias: Irrigation Set Sensor Fault
+    mode: restart
+    sequence:
+      - service: input_boolean.turn_on
+        target:
+          entity_id: input_boolean.irrigation_sensor_fault
+      - service: input_select.select_option
+        target:
+          entity_id: input_select.irrigation_control_mode
+        data:
+          option: manual
+      - service: script.turn_on
+        target:
+          entity_id: script.irrigation_abort_and_close
+      - service: persistent_notification.create
+        data:
+          title: Irrigation Sensor Fault
+          message: >-
+            Invalid moisture reading detected during irrigation. Auto mode disabled.
+
+  irrigation_post_cycle_evaluate:
+    alias: Irrigation Post Cycle Evaluate
+    mode: single
+    sequence:
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.irrigation_cycle_vwc_check_0
+        data:
+          value: "{{ states('sensor.irrigation_sensor_0_vwc_resolved') | float(0) }}"
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.irrigation_cycle_vwc_check_1
+        data:
+          value: "{{ states('sensor.irrigation_sensor_1_vwc_resolved') | float(0) }}"
+      - variables:
+          vwc_before_0: "{{ states('input_number.irrigation_cycle_vwc_before_0') | float(0) }}"
+          vwc_before_1: "{{ states('input_number.irrigation_cycle_vwc_before_1') | float(0) }}"
+          vwc_check_0: "{{ states('input_number.irrigation_cycle_vwc_check_0') | float(0) }}"
+          vwc_check_1: "{{ states('input_number.irrigation_cycle_vwc_check_1') | float(0) }}"
+          delta_0: "{{ (states('input_number.irrigation_cycle_vwc_check_0') | float(0)) - (states('input_number.irrigation_cycle_vwc_before_0') | float(0)) }}"
+          delta_1: "{{ (states('input_number.irrigation_cycle_vwc_check_1') | float(0)) - (states('input_number.irrigation_cycle_vwc_before_1') | float(0)) }}"
+          max_delta: "{{ [delta_0 | float, delta_1 | float] | max }}"
+          gallons: "{{ states('sensor.irrigation_last_cycle_gallons') | float(0) }}"
+          min_gallons: "{{ states('input_number.irrigation_min_gallons_for_leak_check') | float(0.5) }}"
+          min_delta: "{{ states('input_number.irrigation_min_vwc_delta') | float(1) }}"
+          target_0: "{{ states('input_number.irrigation_sensor0_target_vwc') | float(44) }}"
+          target_1: "{{ states('input_number.irrigation_sensor1_target_vwc') | float(44) }}"
+          outcome: >-
+            {% if vwc_check_0 | float >= target_0 and vwc_check_1 | float >= target_1 %}
+              target_reached
+            {% elif gallons | float >= min_gallons | float and max_delta | float < min_delta | float %}
+              leak_suspect
+            {% else %}
+              normal
+            {% endif %}
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ outcome == 'leak_suspect' }}"
+            sequence:
+              - service: script.turn_on
+                target:
+                  entity_id: script.irrigation_set_leak_fault
+          - conditions:
+              - condition: template
+                value_template: "{{ outcome == 'target_reached' }}"
+            sequence:
+              - service: counter.reset
+                target:
+                  entity_id: counter.irrigation_cycles_this_event
+      - service: script.irrigation_log_cycle_complete
+        data:
+          outcome: "{{ outcome }}"
+
+  irrigation_log_cycle_complete:
+    alias: Irrigation Log Cycle Complete
+    mode: queued
+    fields:
+      outcome:
+        description: Cycle outcome label
+        example: normal
+    sequence:
+      - variables:
+          outcome_val: "{{ outcome | default('normal') }}"
+          duration_min: "{{ states('input_number.irrigation_duration_min') | int(10) }}"
+          gallons: "{{ states('sensor.irrigation_last_cycle_gallons') | float(0) }}"
+          delta_0: "{{ (states('input_number.irrigation_cycle_vwc_check_0') | float(0)) - (states('input_number.irrigation_cycle_vwc_before_0') | float(0)) }}"
+          delta_1: "{{ (states('input_number.irrigation_cycle_vwc_check_1') | float(0)) - (states('input_number.irrigation_cycle_vwc_before_1') | float(0)) }}"
+      - service: event.fire
+        data:
+          event_type: irrigation_cycle_complete
+          event_data:
+            cycle_id: "{{ now().isoformat() }}"
+            ended_at: "{{ now().isoformat() }}"
+            duration_min: "{{ duration_min | int }}"
+            gallons_estimated: "{{ gallons | float }}"
+            outcome: "{{ outcome_val }}"
+            cycles_this_event: "{{ states('counter.irrigation_cycles_this_event') | int(0) }}"
+            runtime_today_s: "{{ states('sensor.irrigation_runtime_today_resolved') | int(0) }}"
+            duration_min_setting: "{{ duration_min | int }}"
+            settle_min_setting: "{{ states('input_number.irrigation_settle_min') | int(20) }}"
+            system_gph: "{{ states('input_number.irrigation_system_gph') | float(12) }}"
+            resume_vwc_0: "{{ states('input_number.irrigation_sensor0_resume_vwc') | float(35) }}"
+            resume_vwc_1: "{{ states('input_number.irrigation_sensor1_resume_vwc') | float(35) }}"
+            target_vwc_0: "{{ states('input_number.irrigation_sensor0_target_vwc') | float(44) }}"
+            target_vwc_1: "{{ states('input_number.irrigation_sensor1_target_vwc') | float(44) }}"
+            s0_vwc_before: "{{ states('input_number.irrigation_cycle_vwc_before_0') | float(0) }}"
+            s0_vwc_end: "{{ states('input_number.irrigation_cycle_vwc_end_0') | float(0) }}"
+            s0_vwc_check: "{{ states('input_number.irrigation_cycle_vwc_check_0') | float(0) }}"
+            s0_vwc_60m: "{{ states('input_number.irrigation_cycle_vwc_60m_0') | float(0) }}"
+            s0_delta_check: "{{ delta_0 | float }}"
+            s1_vwc_before: "{{ states('input_number.irrigation_cycle_vwc_before_1') | float(0) }}"
+            s1_vwc_end: "{{ states('input_number.irrigation_cycle_vwc_end_1') | float(0) }}"
+            s1_vwc_check: "{{ states('input_number.irrigation_cycle_vwc_check_1') | float(0) }}"
+            s1_vwc_60m: "{{ states('input_number.irrigation_cycle_vwc_60m_1') | float(0) }}"
+            s1_delta_check: "{{ delta_1 | float }}"
+      - service: persistent_notification.create
+        data:
+          title: "Irrigation cycle {{ outcome_val }}"
+          message: >-
+            {{ gallons | float }} gal delivered. Max VWC delta {{ [delta_0 | float, delta_1 | float] | max }}%.
+            Event irrigation_cycle_complete logged for AI analysis.
+
 automation:
-  # -- Alerts --
-  - alias: "Irrigation Valve Fault Alert"
+  - alias: Irrigation Valve Fault Alert
     id: irrigation_valve_fault_alert
     trigger:
       - platform: state
-        entity_id: sensor.irrigation_controller_irrigation_valve_state
-        to: "fault"
+        entity_id: sensor.irrigation_valve_state_resolved
+        to: fault
     action:
       - service: persistent_notification.create
         data:
-          title: "Irrigation Fault"
-          message: "Valve entered fault state. Check the controller."
+          title: Irrigation Fault
+          message: Valve entered fault state. Check the controller and clear fault.
 
-  - alias: "Irrigation Controller Offline Alert"
+  - alias: Irrigation Controller Offline Alert
     id: irrigation_controller_offline_alert
     trigger:
       - platform: state
-        entity_id: binary_sensor.irrigation_controller_online
+        entity_id: binary_sensor.irrigation_controller_online_resolved
         to: "off"
         for: "00:02:00"
     action:
       - service: persistent_notification.create
         data:
-          title: "Irrigation Offline"
-          message: "Controller has been offline for 2 minutes."
+          title: Irrigation Offline
+          message: Controller has been offline for 2 minutes.
 
-  # -- Valve timing: push slider changes to firmware --
-  - alias: "Irrigation Apply Valve Config"
-    id: irrigation_apply_valve_config
+  - alias: Irrigation Apply Firmware Config
+    id: irrigation_apply_firmware_config
     mode: restart
     trigger:
       - platform: state
         entity_id:
-          - input_number.irrigation_pulse_duration
-          - input_number.irrigation_settle_duration
+          - input_number.irrigation_duration_min
+          - input_number.irrigation_settle_min
+          - input_number.irrigation_max_runtime_day_min
+          - input_number.irrigation_max_runtime_hour_min
+          - input_number.irrigation_max_single_run_min
+          - input_number.irrigation_failsafe_disconnect_min
+          - input_select.irrigation_control_mode
     action:
       - delay: "00:00:01"
-      - service: mqtt.publish
-        data:
-          topic: "irrigation/valve/command"
-          payload: >-
-            {"action":"configure",
-             "pulse_duration_s":{{ states('input_number.irrigation_pulse_duration') | int }},
-             "settle_duration_s":{{ states('input_number.irrigation_settle_duration') | int }}}
+      - service: script.turn_on
+        target:
+          entity_id: script.irrigation_sync_firmware
 
-  # -- Sensor dry thresholds: push slider changes to firmware --
-  - alias: "Irrigation Apply Sensor 0 Config"
+  - alias: Irrigation Apply Sensor 0 Config
     id: irrigation_apply_sensor0_config
     mode: restart
     trigger:
@@ -134,11 +730,11 @@ automation:
       - delay: "00:00:01"
       - service: mqtt.publish
         data:
-          topic: "irrigation/sensor/0/config"
+          topic: irrigation/sensor/0/config
           payload: >-
             {"resume_vwc":{{ states('input_number.irrigation_sensor0_resume_vwc') | float }}}
 
-  - alias: "Irrigation Apply Sensor 1 Config"
+  - alias: Irrigation Apply Sensor 1 Config
     id: irrigation_apply_sensor1_config
     mode: restart
     trigger:
@@ -148,38 +744,311 @@ automation:
       - delay: "00:00:01"
       - service: mqtt.publish
         data:
-          topic: "irrigation/sensor/1/config"
+          topic: irrigation/sensor/1/config
           payload: >-
             {"resume_vwc":{{ states('input_number.irrigation_sensor1_resume_vwc') | float }}}
 
-  # -- Sync firmware state on (re)connect ──────────────────────────────────────
-  # Fired on HA start and every time the controller comes online, so a firmware
-  # reboot ends up with the same resume_vwc and valve timing as the HA sliders.
-  - alias: "Irrigation Sync Firmware On Connect"
+  - alias: Irrigation Sync Firmware On Connect
     id: irrigation_sync_fw_on_connect
     mode: restart
     trigger:
       - platform: homeassistant
         event: start
       - platform: state
-        entity_id: binary_sensor.irrigation_controller_online
+        entity_id: binary_sensor.irrigation_controller_online_resolved
         to: "on"
     action:
       - delay: "00:00:02"
       - service: mqtt.publish
         data:
-          topic: "irrigation/sensor/0/config"
+          topic: irrigation/sensor/0/config
           payload: >-
             {"resume_vwc":{{ states('input_number.irrigation_sensor0_resume_vwc') | float }}}
       - service: mqtt.publish
         data:
-          topic: "irrigation/sensor/1/config"
+          topic: irrigation/sensor/1/config
           payload: >-
             {"resume_vwc":{{ states('input_number.irrigation_sensor1_resume_vwc') | float }}}
-      - service: mqtt.publish
+      - service: script.turn_on
+        target:
+          entity_id: script.irrigation_sync_firmware
+
+  - alias: Irrigation Reset Dry Event Counter
+    id: irrigation_reset_dry_event_counter
+    trigger:
+      - platform: state
+        entity_id:
+          - sensor.irrigation_sensor_0_vwc_resolved
+          - sensor.irrigation_sensor_1_vwc_resolved
+    condition:
+      - condition: template
+        value_template: >
+          {% set s0 = states('sensor.irrigation_sensor_0_vwc_resolved') | float(0) %}
+          {% set s1 = states('sensor.irrigation_sensor_1_vwc_resolved') | float(0) %}
+          {% set t0 = states('input_number.irrigation_sensor0_target_vwc') | float(44) %}
+          {% set t1 = states('input_number.irrigation_sensor1_target_vwc') | float(44) %}
+          {{ s0 >= t0 and s1 >= t1 }}
+    action:
+      - service: counter.reset
+        target:
+          entity_id: counter.irrigation_cycles_this_event
+
+  # ── Auto control ──────────────────────────────────────────────────────────────
+  - alias: Irrigation Snapshot VWC On Pulsing
+    id: irrigation_snapshot_vwc_on_pulsing
+    trigger:
+      - platform: state
+        entity_id: sensor.irrigation_valve_state_resolved
+        to: pulsing
+    action:
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.irrigation_cycle_vwc_before_0
         data:
-          topic: "irrigation/valve/command"
-          payload: >-
-            {"action":"configure",
-             "pulse_duration_s":{{ states('input_number.irrigation_pulse_duration') | int }},
-             "settle_duration_s":{{ states('input_number.irrigation_settle_duration') | int }}}
+          value: "{{ states('sensor.irrigation_sensor_0_vwc_resolved') | float(0) }}"
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.irrigation_cycle_vwc_before_1
+        data:
+          value: "{{ states('sensor.irrigation_sensor_1_vwc_resolved') | float(0) }}"
+
+  - alias: Irrigation Auto Start Cycle
+    id: irrigation_auto_start_cycle
+    mode: single
+    trigger:
+      - platform: state
+        entity_id:
+          - sensor.irrigation_sensor_0_vwc_resolved
+          - sensor.irrigation_sensor_1_vwc_resolved
+          - sensor.irrigation_valve_state_resolved
+      - platform: time_pattern
+        minutes: "/5"
+    condition:
+      - condition: state
+        entity_id: input_select.irrigation_control_mode
+        state: auto
+      - condition: state
+        entity_id: sensor.irrigation_valve_state_resolved
+        state: idle
+      - condition: state
+        entity_id: binary_sensor.irrigation_controller_online_resolved
+        state: "on"
+      - condition: state
+        entity_id: input_boolean.irrigation_leak_fault
+        state: "off"
+      - condition: state
+        entity_id: input_boolean.irrigation_sensor_fault
+        state: "off"
+      - condition: template
+        value_template: >
+          {% set s0 = states('sensor.irrigation_sensor_0_vwc_resolved') | float(0) %}
+          {% set s1 = states('sensor.irrigation_sensor_1_vwc_resolved') | float(0) %}
+          {% set r0 = states('input_number.irrigation_sensor0_resume_vwc') | float(35) %}
+          {% set r1 = states('input_number.irrigation_sensor1_resume_vwc') | float(35) %}
+          {% set t0 = states('input_number.irrigation_sensor0_target_vwc') | float(44) %}
+          {% set t1 = states('input_number.irrigation_sensor1_target_vwc') | float(44) %}
+          {{ (s0 < r0 or s1 < r1) and s0 < t0 and s1 < t1 and s0 >= 1 and s1 >= 1 }}
+      - condition: template
+        value_template: >
+          {{ states('counter.irrigation_cycles_this_event') | int(0)
+             < states('input_number.irrigation_max_cycles_per_event') | int(4) }}
+      - condition: template
+        value_template: >
+          {% set dur = states('input_number.irrigation_duration_min') | int(10) * 60 %}
+          {% set hour = states('sensor.irrigation_runtime_hour_resolved') | int(0) %}
+          {% set day = states('sensor.irrigation_runtime_today_resolved') | int(0) %}
+          {% set max_h = states('input_number.irrigation_max_runtime_hour_min') | int(30) * 60 %}
+          {% set max_d = states('input_number.irrigation_max_runtime_day_min') | int(120) * 60 %}
+          {{ hour + dur <= max_h and day + dur <= max_d }}
+      - condition: template
+        value_template: >
+          {% set settle_s = states('input_number.irrigation_settle_min') | int(20) * 60 %}
+          {{ (now() - states.sensor.irrigation_valve_state_resolved.last_changed).total_seconds() >= settle_s }}
+    action:
+      - service: script.turn_on
+        target:
+          entity_id: script.irrigation_begin_cycle
+
+  # ── During irrigation: max VWC stop + sensor invalid ──────────────────────────
+  - alias: Irrigation Stop On Max VWC
+    id: irrigation_stop_on_max_vwc
+    mode: restart
+    trigger:
+      - platform: state
+        entity_id:
+          - sensor.irrigation_sensor_0_vwc_resolved
+          - sensor.irrigation_sensor_1_vwc_resolved
+      - platform: time_pattern
+        seconds: "/30"
+    condition:
+      - condition: state
+        entity_id: sensor.irrigation_valve_state_resolved
+        state: pulsing
+      - condition: template
+        value_template: >
+          {% set s0 = states('sensor.irrigation_sensor_0_vwc_resolved') | float(0) %}
+          {% set s1 = states('sensor.irrigation_sensor_1_vwc_resolved') | float(0) %}
+          {% set m0 = states('input_number.irrigation_sensor0_max_vwc') | float(50) %}
+          {% set m1 = states('input_number.irrigation_sensor1_max_vwc') | float(50) %}
+          {{ s0 >= m0 or s1 >= m1 }}
+    action:
+      - service: script.turn_on
+        target:
+          entity_id: script.irrigation_abort_and_close
+
+  - alias: Irrigation Sensor Invalid During Run
+    id: irrigation_sensor_invalid_during_run
+    mode: restart
+    trigger:
+      - platform: state
+        entity_id:
+          - sensor.irrigation_sensor_0_vwc_resolved
+          - sensor.irrigation_sensor_1_vwc_resolved
+    condition:
+      - condition: state
+        entity_id: sensor.irrigation_valve_state_resolved
+        state: pulsing
+      - condition: template
+        value_template: >
+          {% set s0 = states('sensor.irrigation_sensor_0_vwc_resolved') | float(99) %}
+          {% set s1 = states('sensor.irrigation_sensor_1_vwc_resolved') | float(99) %}
+          {{ s0 < 1 or s1 < 1 }}
+    action:
+      - service: script.turn_on
+        target:
+          entity_id: script.irrigation_set_sensor_fault
+
+  # ── Mid-cycle leak check ──────────────────────────────────────────────────────
+  - alias: Irrigation Mid Cycle Leak Check
+    id: irrigation_mid_cycle_leak_check
+    mode: single
+    trigger:
+      - platform: state
+        entity_id: sensor.irrigation_valve_state_resolved
+        to: pulsing
+    action:
+      - variables:
+          half_min: "{{ [3, (states('input_number.irrigation_duration_min') | int(10) / 2) | int] | max }}"
+      - delay:
+          minutes: "{{ half_min }}"
+      - condition: state
+        entity_id: sensor.irrigation_valve_state_resolved
+        state: pulsing
+      - variables:
+          before_0: "{{ states('input_number.irrigation_cycle_vwc_before_0') | float(0) }}"
+          before_1: "{{ states('input_number.irrigation_cycle_vwc_before_1') | float(0) }}"
+          now_0: "{{ states('sensor.irrigation_sensor_0_vwc_resolved') | float(0) }}"
+          now_1: "{{ states('sensor.irrigation_sensor_1_vwc_resolved') | float(0) }}"
+          max_delta: "{{ [(now_0 | float) - (before_0 | float), (now_1 | float) - (before_1 | float)] | max }}"
+          min_delta: "{{ (states('input_number.irrigation_min_vwc_delta') | float(1)) * 0.25 }}"
+          gallons_so_far: "{{ (half_min | float) * (states('input_number.irrigation_system_gph') | float(12) / 60) }}"
+          min_gallons: "{{ states('input_number.irrigation_min_gallons_for_leak_check') | float(0.5) }}"
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: >
+                  {{ gallons_so_far | float >= min_gallons | float
+                     and max_delta | float < min_delta | float }}
+            sequence:
+              - service: script.turn_on
+                target:
+                  entity_id: script.irrigation_set_leak_fault
+
+  # ── Cycle end: record VWC, post-settle evaluation, 60m snapshot ───────────────
+  - alias: Irrigation Record VWC At Cycle End
+    id: irrigation_record_vwc_at_cycle_end
+    trigger:
+      - platform: state
+        entity_id: sensor.irrigation_valve_state_resolved
+        from: pulsing
+        to: settling
+    action:
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.irrigation_cycle_vwc_end_0
+        data:
+          value: "{{ states('sensor.irrigation_sensor_0_vwc_resolved') | float(0) }}"
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.irrigation_cycle_vwc_end_1
+        data:
+          value: "{{ states('sensor.irrigation_sensor_1_vwc_resolved') | float(0) }}"
+
+  - alias: Irrigation Post Settle Evaluate
+    id: irrigation_post_settle_evaluate
+    mode: single
+    trigger:
+      - platform: state
+        entity_id: sensor.irrigation_valve_state_resolved
+        from: settling
+        to: idle
+    action:
+      - delay:
+          minutes: "{{ states('input_number.irrigation_leak_check_delay_min') | int(20) }}"
+      - service: script.turn_on
+        target:
+          entity_id: script.irrigation_post_cycle_evaluate
+
+  - alias: Irrigation Snapshot VWC At 60 Minutes
+    id: irrigation_snapshot_vwc_60m
+    mode: single
+    trigger:
+      - platform: state
+        entity_id: sensor.irrigation_valve_state_resolved
+        from: settling
+        to: idle
+    action:
+      - delay:
+          minutes: 60
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.irrigation_cycle_vwc_60m_0
+        data:
+          value: "{{ states('sensor.irrigation_sensor_0_vwc_resolved') | float(0) }}"
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.irrigation_cycle_vwc_60m_1
+        data:
+          value: "{{ states('sensor.irrigation_sensor_1_vwc_resolved') | float(0) }}"
+
+  # ── Block auto start when sensor invalid ──────────────────────────────────────
+  - alias: Irrigation Block Start On Invalid Sensor
+    id: irrigation_block_start_invalid_sensor
+    trigger:
+      - platform: state
+        entity_id:
+          - sensor.irrigation_sensor_0_vwc_resolved
+          - sensor.irrigation_sensor_1_vwc_resolved
+    condition:
+      - condition: template
+        value_template: >
+          {% set s0 = states('sensor.irrigation_sensor_0_vwc_resolved') | float(99) %}
+          {% set s1 = states('sensor.irrigation_sensor_1_vwc_resolved') | float(99) %}
+          {{ s0 < 1 or s1 < 1 }}
+    action:
+      - service: input_boolean.turn_on
+        target:
+          entity_id: input_boolean.irrigation_sensor_fault
+
+  # ── Stuck valve / overrun ─────────────────────────────────────────────────────
+  - alias: Irrigation Stuck Valve Overrun
+    id: irrigation_stuck_valve_overrun
+    trigger:
+      - platform: time_pattern
+        minutes: "/1"
+    condition:
+      - condition: state
+        entity_id: sensor.irrigation_valve_state_resolved
+        state: pulsing
+      - condition: template
+        value_template: >
+          {% set max_s = states('input_number.irrigation_max_single_run_min') | int(20) * 60 + 120 %}
+          {{ (now() - states.sensor.irrigation_valve_state_resolved.last_changed).total_seconds() > max_s }}
+    action:
+      - service: script.turn_on
+        target:
+          entity_id: script.irrigation_abort_and_close
+      - service: persistent_notification.create
+        data:
+          title: Irrigation Overrun
+          message: Valve exceeded max single run duration. Forced close.

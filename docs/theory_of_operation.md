@@ -7,11 +7,10 @@ monitors soil moisture across multiple sensor zones and drives a single shared
 solenoid valve in metered pulses. It integrates with Home Assistant over MQTT for
 monitoring, configuration, manual override, and alerts.
 
-**Control authority:** Firmware decides when to water. When any sensor VWC drops
-below its `resume_vwc` threshold and the valve is idle, the device requests a
-pulse automatically. Home Assistant pushes threshold and timing sliders to the
-device and can override with manual pulse / close commands. Firmware still
-enforces hard safety limits independently.
+**Control authority:** Home Assistant runs the drip irrigation algorithm when
+`irrigation_control_mode` is `auto`. Firmware acts as sensor/actuator with
+MQTT-configurable safety backstops. On-device auto-trigger is **disabled by
+default** (`auto_trigger_enabled: false`); enable only via `firmware_fallback` mode.
 
 ---
 
@@ -43,10 +42,12 @@ Single shared valve; state machine: `IDLE → PULSING → SETTLING → IDLE`, wi
 
 | Safety limit | Value |
 |---|---|
-| Max single pulse | 120 s |
-| Max runtime / hour | 600 s |
-| Max runtime / day | Configurable via MQTT (default 3600 s / 60 min) |
+| Max single run (MQTT `max_pulse_duration_s`) | HA slider (default 20 min) |
+| Max runtime / hour (MQTT `max_runtime_hour_s`) | HA slider (default 30 min) |
+| Max runtime / day (MQTT `max_runtime_day_s`) | HA slider (default 120 min) |
+| Emergency pulse cap (firmware) | 7200 s |
 | Min settle gap | 60 s |
+| MQTT failsafe (MQTT `failsafe_disconnect_s`) | HA slider (default 30 min) |
 
 **MQTT layer — `MqttManager`**  
 WiFi reconnect every 30 s if dropped; MQTT reconnect every 5 s. On connect:

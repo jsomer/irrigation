@@ -74,15 +74,20 @@ Quick reference:
 | `irrigation/valve/command` | HA → Device | `pulse`, `close`, `clear_fault`, `configure` |
 | `irrigation/valve/status` | Device → HA | `online` / `offline` (retained, LWT) |
 
-## Safety Limits (hard-coded, never overridden by MQTT)
+## Safety Limits
 
-| Limit | Value |
-|---|---|
-| Max single pulse duration | 120 s |
-| Max runtime per hour | 600 s (10 min) |
-| Max runtime per day | Configurable via MQTT (default 60 min, max 480 min); firmware hard cap 8 hr |
-| Minimum settle time between pulses | 60 s |
-| Failsafe: close valve on MQTT loss after | 120 s |
+Operational limits are **Home Assistant sliders** pushed via MQTT `configure`.
+Firmware enforces only emergency backstops (stuck valve / runaway protection).
+
+| Limit | Default (HA) | Emergency cap (firmware) |
+|---|---|---|
+| Single run | 20 min | 120 min |
+| Per hour | 30 min | 120 min |
+| Per day | 120 min | 480 min |
+| MQTT failsafe close | 30 min | 120 min |
+
+See [docs/ai_tuning_guide.md](docs/ai_tuning_guide.md) for AI-assisted tuning.
+See [schemas/irrigation_cycle_log.md](schemas/irrigation_cycle_log.md) for cycle event schema.
 
 ## Home Assistant Integration
 
@@ -104,8 +109,12 @@ homeassistant:
     irrigation: !include packages/irrigation.yaml
 ```
 
+Use a **single** package file only — do not use `!include_dir_named packages/`.
+
 Then copy `homeassistant/packages/irrigation.yaml` into your HA `config/packages/`
-directory and restart HA.
+directory (replace any older version) and restart HA.
+
+Full post-restore checklist: [homeassistant/SETUP_AFTER_RESTORE.md](homeassistant/SETUP_AFTER_RESTORE.md)
 
 **Mosquitto add-on settings** (recommended):
 - Start on boot: **on**

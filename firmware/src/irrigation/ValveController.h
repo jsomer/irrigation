@@ -2,14 +2,6 @@
 #include <Arduino.h>
 #include "../config.h"
 
-// ── Error codes ───────────────────────────────────────────────────────────────
-// Structured codes included in valve telemetry; "none" when no fault.
-//
-//  E001  Hard pulse-duration safety limit hit during an active pulse
-//  E002  Hourly runtime budget exhausted before pulse could complete
-//  E003  Daily runtime budget exhausted before pulse could start
-//  E004  Pulse request denied (already open, or in fault/settling state)
-
 enum class ErrorCode : uint8_t {
   NONE           = 0,
   MAX_PULSE_TIME = 1,   // E001
@@ -30,27 +22,27 @@ inline const char* errorCodeStr(ErrorCode c) {
 
 inline const char* errorCodeDesc(ErrorCode c) {
   switch (c) {
-    case ErrorCode::MAX_PULSE_TIME: return "Pulse exceeded 120 s hard limit";
-    case ErrorCode::HOURLY_LIMIT:   return "Hourly runtime limit reached (600 s/hr)";
+    case ErrorCode::MAX_PULSE_TIME: return "Pulse exceeded max single-run limit";
+    case ErrorCode::HOURLY_LIMIT:   return "Hourly runtime limit reached";
     case ErrorCode::DAILY_LIMIT:    return "Daily runtime limit reached";
     case ErrorCode::PULSE_DENIED:   return "Pulse request denied";
     default:                        return "No fault";
   }
 }
 
-// ── Valve state machine ───────────────────────────────────────────────────────
-
 enum class ValveState : uint8_t {
-  IDLE,       // valve closed, waiting for trigger
-  PULSING,    // valve open, counting down pulse duration
-  SETTLING,   // valve closed, counting down settle gap
-  FAULT,      // safety limit hit; requires explicit reset
+  IDLE,
+  PULSING,
+  SETTLING,
+  FAULT,
 };
 
 struct ValveParams {
-  uint16_t pulseDurationS   = DefaultParams::PULSE_DURATION_S;
-  uint16_t settleDurationS  = DefaultParams::SETTLE_DURATION_S;
-  uint32_t maxRuntimeDayS   = DefaultParams::MAX_RUNTIME_DAY_S;
+  uint16_t pulseDurationS    = DefaultParams::PULSE_DURATION_S;
+  uint16_t settleDurationS   = DefaultParams::SETTLE_DURATION_S;
+  uint16_t maxPulseDurationS = DefaultParams::MAX_PULSE_DURATION_S;
+  uint32_t maxRuntimeDayS    = DefaultParams::MAX_RUNTIME_DAY_S;
+  uint32_t maxRuntimeHourS   = DefaultParams::MAX_RUNTIME_HOUR_S;
 };
 
 struct ValveTelemetry {
@@ -59,8 +51,8 @@ struct ValveTelemetry {
   uint32_t    runtimeTodayS;
   uint32_t    runtimeHourS;
   uint32_t    pulseCount;
-  ErrorCode   errorCode;    // NONE when state != FAULT
-  const char* faultReason;  // nullptr when state != FAULT
+  ErrorCode   errorCode;
+  const char* faultReason;
 };
 
 class ValveController {
@@ -68,27 +60,15 @@ public:
   explicit ValveController(uint8_t valvePin);
 
   void begin();
-
-  // Call every loop iteration. Drives the pulse/settle state machine.
   void update();
 
-  // Request a single pulse cycle. Returns false if safety limits deny it.
   bool requestPulse();
-
-  // Immediately close valve and return to IDLE. Always succeeds.
   void forceClose();
-
-  // Clear FAULT state so the valve can operate again.
   void clearFault();
-
-  // Update runtime-tunable parameters (validated against hard limits).
   bool setParams(const ValveParams& params);
 
   const ValveParams& params() const { return _params; }
-
   ValveTelemetry telemetry() const;
-
-  // True if valve can legally open right now (checks all safety limits).
   bool canOpen() const;
 
 private:
@@ -115,4 +95,5 @@ private:
   void tickTimeWindows();
 
   uint32_t currentPulseRuntimeS() const;
+  uint32_t effectivePulseDurationS() const;
 };

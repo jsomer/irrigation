@@ -20,6 +20,10 @@ VH400          sensors[SENSOR_COUNT] = {
 // Per-sensor dry threshold (overridable via MQTT sensor config).
 float sensorResumeVWC[SENSOR_COUNT];
 
+// Runtime config (overridable via MQTT valve configure).
+bool     autoTriggerEnabled = DefaultParams::AUTO_TRIGGER_ENABLED;
+uint32_t failsafeDisconnectS = DefaultParams::FAILSAFE_DISCONNECT_S;
+
 ValveController valve(Pin::VALVE);
 
 MqttManager mqtt(MQTT_BROKER, MQTT_PORT, MQTT_USER, MQTT_PASSWORD, SENSOR_COUNT);
@@ -98,11 +102,24 @@ void onCommand(const MqttCommand& cmd) {
 
     } else if (strcmp(action, "configure") == 0) {
       ValveParams p = valve.params();
-      if (doc["pulse_duration_s"].is<uint16_t>())   p.pulseDurationS   = doc["pulse_duration_s"];
-      if (doc["settle_duration_s"].is<uint16_t>())  p.settleDurationS  = doc["settle_duration_s"];
+      if (doc["pulse_duration_s"].is<uint16_t>())      p.pulseDurationS      = doc["pulse_duration_s"];
+      if (doc["settle_duration_s"].is<uint16_t>())     p.settleDurationS     = doc["settle_duration_s"];
+      if (doc["max_pulse_duration_s"].is<uint16_t>())  p.maxPulseDurationS   = doc["max_pulse_duration_s"];
       if (!doc["max_runtime_day_s"].isNull())
         p.maxRuntimeDayS = doc["max_runtime_day_s"].as<uint32_t>();
+      if (!doc["max_runtime_hour_s"].isNull())
+        p.maxRuntimeHourS = doc["max_runtime_hour_s"].as<uint32_t>();
       valve.setParams(p);
+
+      if (!doc["failsafe_disconnect_s"].isNull()) {
+        uint32_t fs = doc["failsafe_disconnect_s"].as<uint32_t>();
+        failsafeDisconnectS = min(fs, Safety::EMERGENCY_FAILSAFE_DISCONNECT_S);
+        LOG_I(TAG, "Failsafe disconnect set to %lu s", failsafeDisconnectS);
+      }
+      if (!doc["auto_trigger_enabled"].isNull()) {
+        autoTriggerEnabled = doc["auto_trigger_enabled"].as<bool>();
+        LOG_I(TAG, "Auto-trigger %s", autoTriggerEnabled ? "enabled" : "disabled");
+      }
       LOG_I(TAG, "Valve params updated");
 
     } else {
@@ -122,6 +139,7 @@ void onCommand(const MqttCommand& cmd) {
 // Fires if ANY sensor reads below its dry threshold and the valve is idle.
 
 void checkAutoTrigger() {
+  if (!autoTriggerEnabled) return;
   if (!valve.canOpen()) return;
 
   for (uint8_t s = 0; s < SENSOR_COUNT; s++) {
@@ -141,7 +159,7 @@ void checkAutoTrigger() {
 
 void checkFailsafe() {
   uint32_t disconnectedS = mqtt.secondsSinceConnected();
-  if (disconnectedS >= Safety::FAILSAFE_DISCONNECT_S) {
+  if (disconnectedS >= failsafeDisconnectS) {
     ValveTelemetry t = valve.telemetry();
     if (t.valveOpen) {
       LOG_E(TAG, "FAILSAFE: MQTT lost %lu s, closing valve", disconnectedS);

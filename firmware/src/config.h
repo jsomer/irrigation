@@ -13,19 +13,9 @@ namespace Pin {
 }
 
 // ── Sensors / zones ───────────────────────────────────────────────────────────
-// SENSOR_COUNT controls how many VH400 probes are read and reported.
-// Adding more sensors: increment this and add a Pin::SENSOR_N entry above.
 constexpr uint8_t SENSOR_COUNT = 2;
 
 // ── MQTT topics ───────────────────────────────────────────────────────────────
-// Defined as macros so they can be pasted into string literals at compile time,
-// e.g.  MQTT_ROOT "/valve/" MQTT_TOPIC_STATUS  →  "irrigation/valve/status"
-//
-// Sensor telemetry:  MQTT_ROOT "/sensor/<id>/" MQTT_TOPIC_TELEMETRY
-// Sensor config:     MQTT_ROOT "/sensor/<id>/" MQTT_TOPIC_CONFIG
-// Valve telemetry:   MQTT_ROOT "/valve/" MQTT_TOPIC_TELEMETRY
-// Valve command:     MQTT_ROOT "/valve/" MQTT_TOPIC_COMMAND
-// Valve status:      MQTT_ROOT "/valve/" MQTT_TOPIC_STATUS
 #define MQTT_ROOT             "irrigation"
 #define MQTT_TOPIC_TELEMETRY  "telemetry"
 #define MQTT_TOPIC_COMMAND    "command"
@@ -33,37 +23,35 @@ constexpr uint8_t SENSOR_COUNT = 2;
 #define MQTT_TOPIC_CONFIG     "config"
 #define MQTT_CLIENT_ID        "irrigation-controller"
 
-// ── Safety hard limits (never overridden by MQTT/AI) ─────────────────────────
+// ── Emergency hard limits (never overridden by MQTT) ─────────────────────────
+// Operational limits are pushed from Home Assistant via MQTT configure.
 namespace Safety {
-  constexpr uint32_t MAX_PULSE_DURATION_S      = 120;    // single valve open event
-  constexpr uint32_t MAX_RUNTIME_HOUR_S        = 600;    // 10 min/hr (hard cap)
-  constexpr uint32_t MAX_RUNTIME_DAY_HARD_CAP_S = 28800; // 480 min/day absolute max
-  constexpr uint32_t MIN_RUNTIME_DAY_S         = 60;     // 1 min/day minimum
-  constexpr uint32_t MIN_SETTLE_S              = 60;     // min gap between pulses
-  constexpr uint32_t FAILSAFE_DISCONNECT_S     = 120;    // close valve if MQTT lost
+  constexpr uint32_t EMERGENCY_MAX_PULSE_S       = 7200;   // 2 hr stuck-valve backstop
+  constexpr uint32_t EMERGENCY_MAX_RUNTIME_HOUR_S = 7200; // 2 hr/hr absolute max
+  constexpr uint32_t EMERGENCY_MAX_RUNTIME_DAY_S  = 28800; // 8 hr/day absolute max
+  constexpr uint32_t EMERGENCY_FAILSAFE_DISCONNECT_S = 7200; // 2 hr MQTT-loss cap
+  constexpr uint32_t MIN_RUNTIME_DAY_S           = 60;
+  constexpr uint32_t MIN_SETTLE_S                = 60;
 }
 
 // ── Sensor ────────────────────────────────────────────────────────────────────
 namespace Sensor {
   constexpr uint8_t  AVERAGING_SAMPLES  = 16;
   constexpr uint32_t READ_INTERVAL_MS   = 5000;
-  // UNO R4 WiFi (RA4M1) ADC reference is 3.3 V regardless of the 5 V supply.
-  // The VH400 is powered at 5 V but its signal output is 0–3 V, which falls
-  // within the 0–3.3 V ADC input range — no voltage divider needed.
   constexpr float    VCC                = 3.3f;
-  constexpr uint16_t ADC_MAX            = 1023;   // 10-bit default resolution
+  constexpr uint16_t ADC_MAX            = 1023;
 }
 
-// ── Default parameters ────────────────────────────────────────────────────────
+// ── Default parameters (overridden by HA via MQTT on connect) ────────────────
 namespace DefaultParams {
-  // Valve timing (overridable via MQTT configure)
-  constexpr uint16_t PULSE_DURATION_S   = 30;
-  constexpr uint16_t SETTLE_DURATION_S  = 300;
-  // Daily valve-open budget (overridable via MQTT configure; HA slider uses minutes)
-  constexpr uint32_t MAX_RUNTIME_DAY_S  = 3600;  // 60 min/day default
-  // Per-sensor dry threshold (overridable via MQTT sensor config)
-  constexpr float    RESUME_VWC         = 25.0f;
+  constexpr uint16_t PULSE_DURATION_S      = 600;   // 10 min
+  constexpr uint16_t SETTLE_DURATION_S     = 1200;  // 20 min
+  constexpr uint16_t MAX_PULSE_DURATION_S  = 1200; // 20 min single-run cap
+  constexpr uint32_t MAX_RUNTIME_DAY_S     = 7200;  // 120 min/day
+  constexpr uint32_t MAX_RUNTIME_HOUR_S    = 1800;  // 30 min/hr
+  constexpr uint32_t FAILSAFE_DISCONNECT_S = 1800;  // 30 min
+  constexpr bool     AUTO_TRIGGER_ENABLED  = false; // HA controls irrigation
+  constexpr float    RESUME_VWC            = 35.0f;
 }
 
-// ── Telemetry ─────────────────────────────────────────────────────────────────
-constexpr uint32_t TELEMETRY_INTERVAL_MS = 10000;  // publish every 10 s
+constexpr uint32_t TELEMETRY_INTERVAL_MS = 10000;

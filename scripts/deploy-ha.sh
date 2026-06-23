@@ -21,6 +21,7 @@ copy_via_samba() {
   mkdir -p "$mount/packages"
   cp "$ROOT/homeassistant/packages/irrigation.yaml" "$mount/packages/irrigation.yaml"
   echo "Copied package to $mount/packages/irrigation.yaml"
+  echo "NOTE: Deploy irrigation.yaml only — NOT dashboards/irrigation.yaml (that file has title:/views:)"
   echo "Dashboard: paste $ROOT/homeassistant/dashboards/irrigation.yaml via HA raw config editor"
   echo "Then restart Home Assistant."
 }
@@ -35,11 +36,16 @@ Deploy irrigation config to Home Assistant at http://${HA_HOST}:8123
    Paste contents from:
    ${ROOT}/homeassistant/packages/irrigation.yaml
 
+   IMPORTANT: This is NOT the dashboard file. Do NOT paste dashboards/irrigation.yaml here.
+   The package must start with input_select: — not title: or views:
+
 2. Settings → Dashboards → Irrigation → Raw configuration editor
    Paste contents from:
    ${ROOT}/homeassistant/dashboards/irrigation.yaml
 
-3. Developer Tools → YAML → Restart Home Assistant
+3. Developer Tools → YAML → Check configuration, then Restart Home Assistant
+
+See homeassistant/SETUP_AFTER_RESTORE.md for the full post-backup-restore checklist.
 
 Optional Samba copy:
   HA_SMB_USER=homeassistant ${0}
