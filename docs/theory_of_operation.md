@@ -55,8 +55,12 @@ subscribe to command/config topics, publish LWT `online`, publish MQTT Discovery
 configs, then telemetry every 10 s.
 
 **On-device auto-trigger**  
-Firmware pulses when any sensor VWC < `resume_vwc` (default 25 %). HA pushes
-slider values on connect and when sliders change.
+Optional. Disabled by default (`auto_trigger_enabled: false`). When enabled
+(via `firmware_fallback` mode), firmware pulses when any valid sensor VWC drops
+below its `resume_vwc` (default 35 %). HA pushes `resume_vwc` on connect and
+when sliders change.
+
+During PULSING, HA can send `{"action":"close"}` for early stop (max-VWC logic).
 
 ---
 
@@ -64,9 +68,9 @@ slider values on connect and when sliders change.
 
 1. **WiFi** — `maintainWiFi()` every 30 s.
 2. **MQTT** — `mqtt.loop()`.
-3. **Sensors** — every 5 s, update `latestVWC[]`, run auto-trigger.
+3. **Sensors** — every 5 s, update `latestVWC[]`, run auto-trigger if enabled.
 4. **Valve** — `valve.update()` state machine.
-5. **Failsafe** — close valve if MQTT disconnected ≥ 120 s.
+5. **Failsafe** — close valve if MQTT disconnected ≥ `failsafe_disconnect_s` (default 1800 s).
 6. **Telemetry** — every 10 s, sensor + valve JSON; blink status LED.
 
 Sensor read and telemetry intervals are compile-time constants in `config.h`
@@ -101,26 +105,32 @@ If you previously used an older firmware build, stale entities with the longer
 Use **Developer Tools → States** and search `irrigation` if IDs differ after an
 HA upgrade.
 
+The package also defines `*_resolved` template sensors that bridge short and
+legacy long entity IDs. Automations use resolved entities; see
+[ha_drip_control.md](ha_drip_control.md).
+
 ### Package helpers (`irrigation.yaml`)
 
 | Helper | Role |
 |--------|------|
-| `input_number.irrigation_pulse_duration` | Pulse length (pushed to firmware) |
-| `input_number.irrigation_settle_duration` | Settle gap (pushed to firmware) |
+| `input_number.irrigation_duration_min` | Pulse length (pushed to firmware) |
+| `input_number.irrigation_settle_min` | Settle gap (pushed to firmware) |
 | `input_number.irrigation_sensor0_resume_vwc` | Dry threshold sensor 0 |
 | `input_number.irrigation_sensor1_resume_vwc` | Dry threshold sensor 1 |
+| `input_number.irrigation_sensor0_target_vwc` | Target moisture sensor 0 |
+| `input_number.irrigation_sensor1_target_vwc` | Target moisture sensor 1 |
+| `input_number.irrigation_sensor0_max_vwc` | Max moisture / early stop sensor 0 |
+| `input_number.irrigation_sensor1_max_vwc` | Max moisture / early stop sensor 1 |
+| `input_select.irrigation_control_mode` | `disabled` / `manual` / `auto` / `firmware_fallback` |
 
-### Automations (package)
+### Home Assistant drip control
 
-| Automation | Role |
-|------------|------|
-| Sync Firmware On Connect | Push resume_vwc + valve timing from sliders on HA start / controller online |
-| Apply Valve Config | Push pulse/settle when timing sliders change |
-| Apply Sensor N Config | Push resume_vwc when threshold sliders change |
-| Valve Fault / Offline alerts | Notifications |
+HA runs the drip algorithm, leak detection, and cycle logging when control mode
+is `auto`. See [ha_drip_control.md](ha_drip_control.md) for the full script and
+automation catalog.
 
-Firmware safety limits still apply to every pulse, whether auto-triggered or
-manual.
+Firmware safety limits still apply to every pulse, whether HA-triggered,
+auto-triggered, or manual.
 
 ---
 
@@ -139,8 +149,8 @@ manual.
 | Code | Meaning |
 |------|---------|
 | `none` | Healthy |
-| `E001` | Pulse exceeded 120 s hard limit |
-| `E002` | Hourly runtime limit (600 s/hr) |
+| `E001` | Pulse exceeded emergency hard limit (7200 s) |
+| `E002` | Hourly runtime limit (`max_runtime_hour_s`, default 1800 s) |
 | `E003` | Daily runtime limit (configured cap) |
 | `E004` | Pulse request denied |
 
@@ -157,9 +167,10 @@ manual.
 
 ## Safety Summary
 
-1. Hard limits in `config.h` — not overridable remotely.
-2. `setParams()` clamps MQTT configure values.
-3. MQTT-loss failsafe closes valve after 120 s.
+1. Hard limits in `config.h` — not overridable remotely (7200 s pulse/hour, 28800 s/day).
+2. `setParams()` clamps MQTT configure values to emergency ceilings.
+3. MQTT-loss failsafe closes valve after `failsafe_disconnect_s` (default 1800 s).
 4. Fault latches until `clear_fault`.
-5. VWC < 1 % ignored for auto-trigger.
+5. VWC < 1 % ignored for auto-trigger; HA blocks auto start on invalid readings.
 6. Error codes E001–E004 in telemetry.
+7. HA adds a stuck-valve overrun backstop (`max_single_run_min + 2 min`) — see [ha_drip_control.md](ha_drip_control.md).

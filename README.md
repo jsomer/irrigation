@@ -3,25 +3,39 @@
 Arduino UNO R4 WiFi soil-moisture-driven irrigation system with MQTT telemetry,
 Home Assistant integration, and an AI parameter-tuning layer.
 
+## Documentation
+
+| Doc | Purpose |
+|-----|---------|
+| [docs/theory_of_operation.md](docs/theory_of_operation.md) | Firmware, MQTT, entity IDs |
+| [docs/ha_drip_control.md](docs/ha_drip_control.md) | HA drip algorithm, leak detection |
+| [docs/ai_tuning_guide.md](docs/ai_tuning_guide.md) | AI agent tuning workflow |
+| [docs/data_extraction.md](docs/data_extraction.md) | Export cycles from Home Assistant |
+| [schemas/mqtt_topics.md](schemas/mqtt_topics.md) | MQTT topic reference |
+| [schemas/irrigation_cycle_log.md](schemas/irrigation_cycle_log.md) | Cycle event schema |
+| [homeassistant/SETUP_AFTER_RESTORE.md](homeassistant/SETUP_AFTER_RESTORE.md) | Post-restore HA checklist |
+
 ## Architecture
 
 ```
-VH400 Sensors → UNO R4 WiFi → MQTT → Home Assistant (dashboards/history)
+VH400 Sensors → UNO R4 WiFi → MQTT → Home Assistant (drip control, dashboards)
                                           ↕
                                     AI Analysis Layer
                                           ↕ (recommend only)
-                                    UNO R4 WiFi (enforces hard limits)
+                                    UNO R4 WiFi (valve + hard limits)
 ```
 
 **One solenoid valve** is shared across all sensor zones. Moisture differences
 between sensors inform physical sprinkler/soaker-hose positioning rather than
 which valve to open.
 
-**Control authority.** Firmware auto-triggers when any sensor VWC drops below its
-`resume_vwc` dry threshold. Home Assistant pushes threshold and timing sliders to
-the device, provides monitoring and manual override (`pulse` / `close`), and
-syncs config when the controller reconnects. Firmware hard safety limits stay
-active as an independent backstop.
+**Control authority.** Home Assistant runs the drip algorithm when
+`irrigation_control_mode` is `auto` (see [docs/ha_drip_control.md](docs/ha_drip_control.md)).
+The firmware acts as sensor/actuator with MQTT-configurable safety backstops.
+On-device auto-trigger is **off by default**; enable only via `firmware_fallback`
+mode for legacy operation. HA pushes timing and threshold sliders via MQTT,
+provides monitoring and manual override (`pulse` / `close`), and syncs config
+when the controller reconnects.
 
 ## Hardware
 
@@ -111,8 +125,9 @@ homeassistant:
 
 Use a **single** package file only — do not use `!include_dir_named packages/`.
 
-Then copy `homeassistant/packages/irrigation.yaml` into your HA `config/packages/`
-directory (replace any older version) and restart HA.
+Deploy the package with `./scripts/deploy-ha.sh` (prints File Editor steps) or
+copy `homeassistant/packages/irrigation.yaml` into HA `config/packages/` manually,
+then restart HA.
 
 Full post-restore checklist: [homeassistant/SETUP_AFTER_RESTORE.md](homeassistant/SETUP_AFTER_RESTORE.md)
 
@@ -148,11 +163,11 @@ data:
   topic: irrigation/valve/command
   payload: '{"action": "configure", "pulse_duration_s": 30, "settle_duration_s": 300, "max_runtime_day_s": 3600}'
 
-# Set per-sensor dry threshold (auto-trigger fires when VWC drops below this)
+# Set per-sensor dry threshold (used by firmware_fallback auto-trigger)
 service: mqtt.publish
 data:
   topic: irrigation/sensor/0/config
-  payload: '{"resume_vwc": 25.0}'
+  payload: '{"resume_vwc": 35.0}'
 ```
 
 ## Scaling to More Sensors
@@ -183,7 +198,7 @@ firmware/
     secrets.h             WiFi + MQTT credentials (gitignored)
     secrets.h.example     template — commit this, not secrets.h
     log.h                 Serial logging macros
-    main.cpp              setup/loop, auto-trigger, failsafe
+    main.cpp              setup/loop, optional auto-trigger, failsafe
     sensors/
       VH400.h/.cpp        ADC read + Vegetronix piecewise calibration
     irrigation/
@@ -192,13 +207,24 @@ firmware/
       MqttManager.h/.cpp  MQTT connect/reconnect, pub/sub, discovery, JSON
 schemas/
   mqtt_topics.md          MQTT topic reference + JSON schemas
+  irrigation_cycle_log.md cycle completion event schema
 homeassistant/
   packages/
     irrigation.yaml       HA package: input helpers, template sensors, automations
   dashboards/
     irrigation.yaml       Lovelace dashboard YAML
+  SETUP_AFTER_RESTORE.md  post-backup HA checklist
+scripts/
+  deploy-ha.sh            deploy package to HA (Samba or instructions)
+  export_irrigation_cycles.py  export cycle events + optional VWC history
+  analyze_irrigation.py   metrics, leak simulation, HA dashboard push
 docs/
   hardware.md             Bill of materials, pin connections, wiring diagrams
   vh400_calibration.md    ADC reference, piecewise VWC formulas
-  theory_of_operation.md  Firmware, HA control model, MQTT, entity IDs
+  theory_of_operation.md  Firmware, MQTT, entity IDs
+  ha_drip_control.md      HA drip algorithm, leak detection, automations
+  ai_tuning_guide.md      AI agent tuning workflow
+  data_extraction.md      HA export pipeline for analysis
+.github/workflows/
+  firmware-build.yml      CI: debug + release firmware builds
 ```

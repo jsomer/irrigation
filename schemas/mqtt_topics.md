@@ -10,17 +10,21 @@
 
 One solenoid **valve** is shared across all moisture measurement **sensors**.
 
-**Production control:** Firmware auto-triggers when any sensor VWC drops below its
-`resume_vwc` threshold. Home Assistant pushes threshold and timing values from
-sliders, provides monitoring and manual override, and syncs config on connect.
+**Production control:** Home Assistant runs the drip algorithm when
+`irrigation_control_mode` is `auto`. The firmware acts as sensor/actuator with
+MQTT-configurable safety backstops. On-device auto-trigger is off by default;
+enable only via `firmware_fallback` mode.
 
 ```
 Sensor 0 (A0) ──┐
-Sensor 1 (A1) ──┤── firmware auto-trigger ──► Valve (Pin 5)
-...             ┘         ▲
-                          │ MQTT configure / manual pulse
-                     Home Assistant
+Sensor 1 (A1) ──┤── telemetry ──► Home Assistant (drip logic)
+...             ┘                      │
+                                       │ MQTT pulse / close / configure
+                                       ▼
+                                  Valve (Pin 5)
 ```
+
+See [docs/ha_drip_control.md](../docs/ha_drip_control.md) for the HA state machine.
 
 ---
 
@@ -68,8 +72,8 @@ Sensor 1 (A1) ──┤── firmware auto-trigger ──► Valve (Pin 5)
 | Code | Condition |
 |------|-----------|
 | `none` | No fault |
-| `E001` | Pulse exceeded 120 s hard limit (hit during active pulse) |
-| `E002` | Hourly runtime budget exhausted (600 s/hr) |
+| `E001` | Pulse exceeded emergency hard limit (7200 s) |
+| `E002` | Hourly runtime budget exhausted (`max_runtime_hour_s`, default 1800 s) |
 | `E003` | Daily runtime budget exhausted (configured `max_runtime_day_s`) |
 | `E004` | Pulse request denied (unexpected state) |
 
@@ -149,10 +153,10 @@ Operational limits are pushed from Home Assistant sliders. Firmware emergency ce
 
 | Field       | Type  | Unit | Description                     |
 |-------------|-------|------|---------------------------------|
-| `resume_vwc`| float | %    | Auto-trigger dry threshold      |
+| `resume_vwc`| float | %    | Dry threshold for firmware_fallback auto-trigger (default 35 %) |
 
 ```json
-{"resume_vwc":25.0}
+{"resume_vwc":35.0}
 ```
 
 ---

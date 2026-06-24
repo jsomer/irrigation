@@ -248,6 +248,73 @@ input_number:
     initial: 0
     mode: box
 
+  irrigation_cycle_actual_pulse_s:
+    name: Cycle Actual Pulse Seconds
+    min: 0
+    max: 7200
+    step: 1
+    initial: 0
+    mode: box
+
+  # Analysis recommendation helpers (written by analyze_irrigation.py --apply-to-ha)
+  irrigation_analysis_rec_duration_min:
+    name: Analysis Rec Duration
+    min: 3
+    max: 30
+    step: 1
+    initial: 10
+    unit_of_measurement: min
+    icon: mdi:lightbulb-outline
+
+  irrigation_analysis_rec_settle_min:
+    name: Analysis Rec Settle
+    min: 10
+    max: 45
+    step: 1
+    initial: 20
+    unit_of_measurement: min
+    icon: mdi:lightbulb-outline
+
+  irrigation_analysis_rec_leak_check_delay_min:
+    name: Analysis Rec Leak Check Delay
+    min: 15
+    max: 45
+    step: 5
+    initial: 20
+    unit_of_measurement: min
+    icon: mdi:lightbulb-outline
+
+  irrigation_analysis_rec_min_vwc_delta:
+    name: Analysis Rec Min VWC Delta
+    min: 0.3
+    max: 3.0
+    step: 0.1
+    initial: 1.0
+    unit_of_measurement: "%"
+    icon: mdi:lightbulb-outline
+
+input_text:
+  irrigation_cycle_started_at:
+    name: Cycle Started At
+    initial: ""
+    max: 64
+
+  irrigation_analysis_summary:
+    name: Analysis Summary
+    initial: "No analysis run yet."
+    max: 255
+
+input_datetime:
+  irrigation_analysis_last_export:
+    name: Analysis Last Export
+    has_date: true
+    has_time: true
+
+  irrigation_analysis_last_run:
+    name: Analysis Last Run
+    has_date: true
+    has_time: true
+
 input_boolean:
   irrigation_leak_fault:
     name: Irrigation Leak Fault
@@ -358,9 +425,14 @@ template:
         unique_id: irrigation_last_cycle_gallons
         unit_of_measurement: gal
         state: >
-          {% set dur = states('input_number.irrigation_duration_min') | float(10) %}
+          {% set pulse_s = states('input_number.irrigation_cycle_actual_pulse_s') | float(0) %}
           {% set gpm = states('input_number.irrigation_system_gph') | float(12) / 60 %}
-          {{ (dur * gpm) | round(2) }}
+          {% if pulse_s > 0 %}
+            {{ (pulse_s / 60 * gpm) | round(2) }}
+          {% else %}
+            {% set dur = states('input_number.irrigation_duration_min') | float(10) %}
+            {{ (dur * gpm) | round(2) }}
+          {% endif %}
 
       - name: Irrigation Operational Status
         unique_id: irrigation_operational_status
@@ -498,6 +570,16 @@ script:
     alias: Irrigation Begin Cycle
     mode: single
     sequence:
+      - service: input_text.set_value
+        target:
+          entity_id: input_text.irrigation_cycle_started_at
+        data:
+          value: "{{ now().isoformat() }}"
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.irrigation_cycle_actual_pulse_s
+        data:
+          value: 0
       - service: input_number.set_value
         target:
           entity_id: input_number.irrigation_cycle_vwc_before_0
@@ -594,7 +676,14 @@ script:
           delta_0: "{{ (states('input_number.irrigation_cycle_vwc_check_0') | float(0)) - (states('input_number.irrigation_cycle_vwc_before_0') | float(0)) }}"
           delta_1: "{{ (states('input_number.irrigation_cycle_vwc_check_1') | float(0)) - (states('input_number.irrigation_cycle_vwc_before_1') | float(0)) }}"
           max_delta: "{{ [delta_0 | float, delta_1 | float] | max }}"
-          gallons: "{{ states('sensor.irrigation_last_cycle_gallons') | float(0) }}"
+          pulse_s: "{{ states('input_number.irrigation_cycle_actual_pulse_s') | float(0) }}"
+          gpm: "{{ states('input_number.irrigation_system_gph') | float(12) / 60 }}"
+          gallons: >-
+            {% if pulse_s | float > 0 %}
+              {{ (pulse_s | float / 60 * gpm | float) | round(2) }}
+            {% else %}
+              {{ states('sensor.irrigation_last_cycle_gallons') | float(0) }}
+            {% endif %}
           min_gallons: "{{ states('input_number.irrigation_min_gallons_for_leak_check') | float(0.5) }}"
           min_delta: "{{ states('input_number.irrigation_min_vwc_delta') | float(1) }}"
           target_0: "{{ states('input_number.irrigation_sensor0_target_vwc') | float(44) }}"
@@ -636,8 +725,18 @@ script:
     sequence:
       - variables:
           outcome_val: "{{ outcome | default('normal') }}"
-          duration_min: "{{ states('input_number.irrigation_duration_min') | int(10) }}"
-          gallons: "{{ states('sensor.irrigation_last_cycle_gallons') | float(0) }}"
+          duration_min_setting: "{{ states('input_number.irrigation_duration_min') | int(10) }}"
+          pulse_s: "{{ states('input_number.irrigation_cycle_actual_pulse_s') | float(0) }}"
+          gpm: "{{ states('input_number.irrigation_system_gph') | float(12) / 60 }}"
+          gallons_estimated: "{{ (duration_min_setting | float * gpm | float) | round(2) }}"
+          gallons_actual: >-
+            {% if pulse_s | float > 0 %}
+              {{ (pulse_s | float / 60 * gpm | float) | round(2) }}
+            {% else %}
+              {{ gallons_estimated | float }}
+            {% endif %}
+          early_stop: >-
+            {{ pulse_s | float > 0 and pulse_s | float < (duration_min_setting | int * 60) }}
           delta_0: "{{ (states('input_number.irrigation_cycle_vwc_check_0') | float(0)) - (states('input_number.irrigation_cycle_vwc_before_0') | float(0)) }}"
           delta_1: "{{ (states('input_number.irrigation_cycle_vwc_check_1') | float(0)) - (states('input_number.irrigation_cycle_vwc_before_1') | float(0)) }}"
       - service: event.fire
@@ -646,18 +745,26 @@ script:
           event_data:
             cycle_id: "{{ now().isoformat() }}"
             ended_at: "{{ now().isoformat() }}"
-            duration_min: "{{ duration_min | int }}"
-            gallons_estimated: "{{ gallons | float }}"
+            cycle_started_at: "{{ states('input_text.irrigation_cycle_started_at') }}"
+            duration_min: "{{ duration_min_setting | int }}"
+            gallons_estimated: "{{ gallons_estimated | float }}"
+            gallons_actual: "{{ gallons_actual | float }}"
+            actual_pulse_s: "{{ pulse_s | int }}"
+            early_stop: "{{ early_stop }}"
             outcome: "{{ outcome_val }}"
             cycles_this_event: "{{ states('counter.irrigation_cycles_this_event') | int(0) }}"
             runtime_today_s: "{{ states('sensor.irrigation_runtime_today_resolved') | int(0) }}"
-            duration_min_setting: "{{ duration_min | int }}"
+            duration_min_setting: "{{ duration_min_setting | int }}"
             settle_min_setting: "{{ states('input_number.irrigation_settle_min') | int(20) }}"
             system_gph: "{{ states('input_number.irrigation_system_gph') | float(12) }}"
             resume_vwc_0: "{{ states('input_number.irrigation_sensor0_resume_vwc') | float(35) }}"
             resume_vwc_1: "{{ states('input_number.irrigation_sensor1_resume_vwc') | float(35) }}"
             target_vwc_0: "{{ states('input_number.irrigation_sensor0_target_vwc') | float(44) }}"
             target_vwc_1: "{{ states('input_number.irrigation_sensor1_target_vwc') | float(44) }}"
+            max_vwc_0: "{{ states('input_number.irrigation_sensor0_max_vwc') | float(50) }}"
+            max_vwc_1: "{{ states('input_number.irrigation_sensor1_max_vwc') | float(50) }}"
+            s0_role: far
+            s1_role: near
             s0_vwc_before: "{{ states('input_number.irrigation_cycle_vwc_before_0') | float(0) }}"
             s0_vwc_end: "{{ states('input_number.irrigation_cycle_vwc_end_0') | float(0) }}"
             s0_vwc_check: "{{ states('input_number.irrigation_cycle_vwc_check_0') | float(0) }}"
@@ -672,7 +779,8 @@ script:
         data:
           title: "Irrigation cycle {{ outcome_val }}"
           message: >-
-            {{ gallons | float }} gal delivered. Max VWC delta {{ [delta_0 | float, delta_1 | float] | max }}%.
+            {{ gallons_actual | float }} gal delivered ({{ pulse_s | int }}s pulse).
+            Max VWC delta {{ [delta_0 | float, delta_1 | float] | max }}%.
             Event irrigation_cycle_complete logged for AI analysis.
 
 automation:
@@ -963,6 +1071,19 @@ automation:
         from: pulsing
         to: settling
     action:
+      - variables:
+          started: "{{ states('input_text.irrigation_cycle_started_at') }}"
+          pulse_s: >-
+            {% if started not in ['', 'unknown', 'unavailable'] %}
+              {{ (now() - as_datetime(started)).total_seconds() | int }}
+            {% else %}
+              0
+            {% endif %}
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.irrigation_cycle_actual_pulse_s
+        data:
+          value: "{{ pulse_s }}"
       - service: input_number.set_value
         target:
           entity_id: input_number.irrigation_cycle_vwc_end_0

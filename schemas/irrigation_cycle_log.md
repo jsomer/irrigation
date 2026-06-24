@@ -18,16 +18,22 @@ irrigation_cycle_complete
 |-------|------|-------------|
 | `cycle_id` | ISO string | Unique id (timestamp) |
 | `ended_at` | ISO string | When evaluation completed |
-| `duration_min` | int | Irrigation run length |
+| `cycle_started_at` | ISO string | When `irrigation_begin_cycle` ran |
+| `duration_min` | int | Configured irrigation run length |
+| `duration_min_setting` | int | Slider at cycle time |
+| `actual_pulse_s` | int | Measured valve-open seconds |
 | `gallons_estimated` | float | `duration_min × (system_gph / 60)` |
+| `gallons_actual` | float | `actual_pulse_s / 60 × (system_gph / 60)` |
+| `early_stop` | bool | Pulse ended before `duration_min_setting` |
 | `outcome` | string | See outcomes below |
 | `cycles_this_event` | int | Counter for current dry event |
 | `runtime_today_s` | int | Valve-open seconds today |
-| `duration_min_setting` | int | Slider at cycle time |
 | `settle_min_setting` | int | Slider at cycle time |
 | `system_gph` | float | Slider at cycle time |
 | `resume_vwc_0` / `resume_vwc_1` | float | Low thresholds |
 | `target_vwc_0` / `target_vwc_1` | float | Target thresholds |
+| `max_vwc_0` / `max_vwc_1` | float | Early-stop thresholds |
+| `s0_role` / `s1_role` | string | `far` / `near` (S0 far from emitters) |
 | `s0_vwc_before` | float | Sensor 0 VWC before cycle |
 | `s0_vwc_end` | float | Sensor 0 VWC when valve closed |
 | `s0_vwc_check` | float | Sensor 0 VWC at leak-check delay |
@@ -49,6 +55,15 @@ irrigation_cycle_complete
 
 Settings → Logbook → filter `irrigation_cycle_complete`
 
+### Export scripts (recommended)
+
+```bash
+python scripts/export_irrigation_cycles.py --db /path/to/home-assistant_v2.db --days 90
+python scripts/analyze_irrigation.py --cycles data/irrigation_cycles.csv
+```
+
+See [docs/data_extraction.md](../docs/data_extraction.md).
+
 ### Recorder / API
 
 ```yaml
@@ -65,9 +80,10 @@ input_number.irrigation_settle_min
 ### Example derived metrics (for AI agents)
 
 ```
-vwc_per_gallon = s0_delta_check / gallons_estimated
-sensor_lag_minutes = time when delta first exceeds 0.5% minus cycle end time
-overshoot = max(s0_vwc_60m, s1_vwc_60m) - target_vwc
+vwc_per_gallon = s0_delta_check / gallons_actual
+sensor_lag_minutes = time when S0 delta first exceeds 0.5% minus valve close
+overshoot = s1_vwc_60m - target_vwc_1
+gallons_needed_s0 = (target_vwc_0 - s0_vwc_before) / median(s0_vwc_per_gal_60m)
 ```
 
 ## Cycle snapshot helpers
@@ -76,10 +92,23 @@ Written during each cycle (visible on dashboard):
 
 | Entity | When set |
 |--------|----------|
+| `input_text.irrigation_cycle_started_at` | Cycle start |
+| `input_number.irrigation_cycle_actual_pulse_s` | Valve closes (pulsing → settling) |
 | `input_number.irrigation_cycle_vwc_before_*` | Cycle start |
 | `input_number.irrigation_cycle_vwc_end_*` | Valve closes |
 | `input_number.irrigation_cycle_vwc_check_*` | After leak-check delay |
 | `input_number.irrigation_cycle_vwc_60m_*` | 60 min after cycle |
+
+## Analysis dashboard helpers
+
+Written by `scripts/analyze_irrigation.py --apply-to-ha`:
+
+| Entity | Purpose |
+|--------|---------|
+| `input_datetime.irrigation_analysis_last_export` | Last CSV export |
+| `input_datetime.irrigation_analysis_last_run` | Last analysis run |
+| `input_text.irrigation_analysis_summary` | Short summary for dashboard |
+| `input_number.irrigation_analysis_rec_*` | Suggested slider values (not applied automatically) |
 
 ## Tunable entities (AI may recommend changes)
 

@@ -237,3 +237,61 @@ views:
               **AI data:** Each cycle fires `irrigation_cycle_complete` events (Logbook + Recorder).
 
               Start in **manual** mode, run one cycle, verify events and leak settings before enabling **auto**.
+
+  - title: Data Analysis
+    path: irrigation-analysis
+    icon: mdi:chart-scatter-plot
+    type: sections
+    sections:
+
+      - type: grid
+        title: Workflow
+        cards:
+
+          - type: markdown
+            content: >
+              **Export → analyze → review.** Run `scripts/export_irrigation_cycles.py` and
+              `scripts/analyze_irrigation.py` locally (see `docs/data_extraction.md`).
+              Use `--apply-to-ha` to push recommendations here. Apply slider changes manually
+              on the Irrigation tab after verifying in **manual** mode.
+
+          - type: entities
+            title: Analysis Runs
+            show_header_toggle: false
+            entities:
+              - entity: input_datetime.irrigation_analysis_last_export
+                name: Last Export
+              - entity: input_datetime.irrigation_analysis_last_run
+                name: Last Analysis
+
+          - type: markdown
+            content: >
+              **Summary:** {{ states('input_text.irrigation_analysis_summary') }}
+
+          - type: entities
+            title: Recommended Settings (suggestions only)
+            show_header_toggle: false
+            entities:
+              - entity: input_number.irrigation_analysis_rec_duration_min
+                name: Suggested On-Time
+              - entity: input_number.irrigation_analysis_rec_settle_min
+                name: Suggested Settle
+              - entity: input_number.irrigation_analysis_rec_leak_check_delay_min
+                name: Suggested Leak Check Delay
+              - entity: input_number.irrigation_analysis_rec_min_vwc_delta
+                name: Suggested Min VWC Delta
+
+          - type: history-graph
+            title: Moisture Trend (7 d)
+            hours_to_show: 168
+            entities:
+              - entity: sensor.irrigation_sensor_0_vwc_resolved
+                name: Sensor 0 (far)
+              - entity: sensor.irrigation_sensor_1_vwc_resolved
+                name: Sensor 1 (near)
+
+          - type: markdown
+            content: >
+              **Sensor roles:** S0 is far from emitters (slow, target driver). S1 is near
+              emitters (fast, saturation risk). Leak detection uses `max(delta_s0, delta_s1)` —
+              tune delay and min delta from data, do not disable leak checks.
