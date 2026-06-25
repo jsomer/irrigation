@@ -1,0 +1,3 @@
+[submodule "external/home-assistant"]
+	path = external/home-assistant
+	url = https://github.com/jsomer/home-assistant.git
