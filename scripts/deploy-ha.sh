@@ -20,7 +20,8 @@ copy_via_samba() {
   mount_smbfs "//${HA_SMB_USER}@${HA_HOST}/${SMB_SHARE}" "$mount"
   mkdir -p "$mount/packages"
   cp "$ROOT/homeassistant/packages/irrigation.yaml" "$mount/packages/irrigation.yaml"
-  echo "Copied package to $mount/packages/irrigation.yaml"
+  cp "$ROOT/homeassistant/packages/irrigation_sensors.yaml" "$mount/packages/irrigation_sensors.yaml"
+  echo "Copied packages to $mount/packages/irrigation.yaml and irrigation_sensors.yaml"
   echo "NOTE: Deploy irrigation.yaml only — NOT dashboards/irrigation.yaml (that file has title:/views:)"
   echo "Dashboard: paste $ROOT/homeassistant/dashboards/irrigation.yaml via HA raw config editor"
   echo "Then restart Home Assistant."
@@ -32,12 +33,12 @@ else
   cat <<EOF
 Deploy irrigation config to Home Assistant at http://${HA_HOST}:8123
 
-1. File Editor → config/packages/irrigation.yaml
+1. File Editor → config/packages/
    Paste contents from:
    ${ROOT}/homeassistant/packages/irrigation.yaml
+   ${ROOT}/homeassistant/packages/irrigation_sensors.yaml
 
-   IMPORTANT: This is NOT the dashboard file. Do NOT paste dashboards/irrigation.yaml here.
-   The package must start with input_select: — not title: or views:
+   IMPORTANT: Deploy BOTH package files. This is NOT the dashboard file.
 
 2. Settings → Dashboards → Irrigation → Raw configuration editor
    Paste contents from:

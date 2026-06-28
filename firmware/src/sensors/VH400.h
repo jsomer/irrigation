@@ -21,6 +21,9 @@ public:
 
   uint8_t pin() const { return _pin; }
 
+  // Last averaged signal voltage from the most recent readVWC() (0–3 V).
+  float lastVoltage() const { return _lastVoltage; }
+
   static constexpr uint32_t STALE_MS = 30000;
 
 private:

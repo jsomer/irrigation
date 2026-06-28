@@ -4,42 +4,39 @@
 #include "log.h"
 #include "config.h"
 #include "secrets.h"
+#include "config/ConfigStore.h"
 #include "sensors/VH400.h"
 #include "irrigation/ValveController.h"
 #include "mqtt/MqttManager.h"
 
 static const char* TAG = "Main";
 
-// ── Hardware objects ──────────────────────────────────────────────────────────
-
-VH400          sensors[SENSOR_COUNT] = {
+VH400 sensors[SENSOR_COUNT] = {
   VH400(Pin::SENSOR_0),
   VH400(Pin::SENSOR_1),
+  VH400(Pin::SENSOR_2),
+  VH400(Pin::SENSOR_3),
+  VH400(Pin::SENSOR_4),
+  VH400(Pin::SENSOR_5),
 };
 
-// Per-sensor dry threshold (overridable via MQTT sensor config).
-float sensorResumeVWC[SENSOR_COUNT];
-
-// Runtime config (overridable via MQTT valve configure).
-bool     autoTriggerEnabled = DefaultParams::AUTO_TRIGGER_ENABLED;
-uint32_t failsafeDisconnectS = DefaultParams::FAILSAFE_DISCONNECT_S;
+uint32_t failsafeDisconnectS = 0;
 
 ValveController valve(Pin::VALVE);
+ConfigStore     configStore;
 
-MqttManager mqtt(MQTT_BROKER, MQTT_PORT, MQTT_USER, MQTT_PASSWORD, SENSOR_COUNT);
-
-// ── Timers ────────────────────────────────────────────────────────────────────
+ConfigSource configSource = ConfigSource::NONE;
 
 unsigned long lastSensorReadMs = 0;
 unsigned long lastTelemetryMs  = 0;
 
 float latestVWC[SENSOR_COUNT];
 
-// ── WiFi ──────────────────────────────────────────────────────────────────────
+MqttManager mqtt(MQTT_BROKER, MQTT_PORT, MQTT_USER, MQTT_PASSWORD, SENSOR_COUNT);
 
 static unsigned long lastWifiCheckMs = 0;
-static constexpr uint32_t WIFI_CHECK_INTERVAL_MS  = 30000;  // check every 30 s
-static constexpr uint32_t WIFI_CONNECT_TIMEOUT_MS = 20000;  // 20 s per attempt
+static constexpr uint32_t WIFI_CHECK_INTERVAL_MS  = 30000;
+static constexpr uint32_t WIFI_CONNECT_TIMEOUT_MS = 20000;
 
 void connectWiFi() {
   LOG_I(TAG, "Connecting to WiFi %s ...", WIFI_SSID);
@@ -57,7 +54,6 @@ void connectWiFi() {
   }
 }
 
-// Called every loop. Reconnects silently if WiFi has dropped.
 void maintainWiFi() {
   unsigned long now = millis();
   if (now - lastWifiCheckMs < WIFI_CHECK_INTERVAL_MS) return;
@@ -70,7 +66,44 @@ void maintainWiFi() {
   }
 }
 
-// ── MQTT command handler ──────────────────────────────────────────────────────
+static PersistedConfig buildPersistedConfig() {
+  PersistedConfig cfg = {};
+  cfg.configured          = 1;
+  cfg.failsafeDisconnectS = failsafeDisconnectS;
+  ConfigStore::valveParamsToPersisted(valve.params(), cfg);
+  return cfg;
+}
+
+static void applyPersistedConfig(const PersistedConfig& cfg) {
+  ValveParams p;
+  ConfigStore::persistedToValveParams(cfg, p);
+  valve.setParams(p);
+  valve.setConfigured(true);
+  failsafeDisconnectS = cfg.failsafeDisconnectS;
+  LOG_I(TAG, "Applied persisted config (failsafe=%lu s)", failsafeDisconnectS);
+}
+
+static bool saveRuntimeConfig() {
+  if (!valve.isConfigured()) return false;
+  return configStore.save(buildPersistedConfig());
+}
+
+static void applyHaConfigure(JsonDocument& doc) {
+  ValveParams p = valve.params();
+  if (doc["settle_duration_s"].is<uint16_t>())    p.settleDurationS   = doc["settle_duration_s"];
+  if (doc["max_pulse_duration_s"].is<uint16_t>()) p.maxPulseDurationS = doc["max_pulse_duration_s"];
+  valve.setParams(p);
+  valve.setConfigured(true);
+
+  if (!doc["failsafe_disconnect_s"].isNull()) {
+    failsafeDisconnectS = doc["failsafe_disconnect_s"].as<uint32_t>();
+    LOG_I(TAG, "Failsafe disconnect set to %lu s", failsafeDisconnectS);
+  }
+
+  configSource = ConfigSource::HA;
+  saveRuntimeConfig();
+  LOG_I(TAG, "Valve params updated from HA");
+}
 
 static const char* valveStateName(ValveState s) {
   switch (s) {
@@ -83,81 +116,35 @@ static const char* valveStateName(ValveState s) {
 }
 
 void onCommand(const MqttCommand& cmd) {
+  if (cmd.target != MqttCommandTarget::VALVE) return;
+
   JsonDocument& doc = *cmd.doc;
+  const char* action = doc["action"] | "";
+  LOG_I(TAG, "Valve command: %s", action);
 
-  if (cmd.target == MqttCommandTarget::VALVE) {
-    const char* action = doc["action"] | "";
-    LOG_I(TAG, "Valve command: %s", action);
-
-    if (strcmp(action, "pulse") == 0) {
-      if (!valve.requestPulse()) {
-        LOG_W(TAG, "Valve pulse request denied");
-      }
-
-    } else if (strcmp(action, "close") == 0) {
-      valve.forceClose();
-
-    } else if (strcmp(action, "clear_fault") == 0) {
-      valve.clearFault();
-
-    } else if (strcmp(action, "configure") == 0) {
-      ValveParams p = valve.params();
-      if (doc["pulse_duration_s"].is<uint16_t>())      p.pulseDurationS      = doc["pulse_duration_s"];
-      if (doc["settle_duration_s"].is<uint16_t>())     p.settleDurationS     = doc["settle_duration_s"];
-      if (doc["max_pulse_duration_s"].is<uint16_t>())  p.maxPulseDurationS   = doc["max_pulse_duration_s"];
-      if (!doc["max_runtime_day_s"].isNull())
-        p.maxRuntimeDayS = doc["max_runtime_day_s"].as<uint32_t>();
-      if (!doc["max_runtime_hour_s"].isNull())
-        p.maxRuntimeHourS = doc["max_runtime_hour_s"].as<uint32_t>();
-      valve.setParams(p);
-
-      if (!doc["failsafe_disconnect_s"].isNull()) {
-        uint32_t fs = doc["failsafe_disconnect_s"].as<uint32_t>();
-        failsafeDisconnectS = min(fs, Safety::EMERGENCY_FAILSAFE_DISCONNECT_S);
-        LOG_I(TAG, "Failsafe disconnect set to %lu s", failsafeDisconnectS);
-      }
-      if (!doc["auto_trigger_enabled"].isNull()) {
-        autoTriggerEnabled = doc["auto_trigger_enabled"].as<bool>();
-        LOG_I(TAG, "Auto-trigger %s", autoTriggerEnabled ? "enabled" : "disabled");
-      }
-      LOG_I(TAG, "Valve params updated");
-
-    } else {
-      LOG_W(TAG, "Unknown valve action: %s", action);
+  if (strcmp(action, "pulse") == 0) {
+    uint32_t durationS = doc["pulse_duration_s"] | 0;
+    if (!valve.requestPulse(durationS)) {
+      LOG_W(TAG, "Valve pulse request denied");
     }
 
-  } else if (cmd.target == MqttCommandTarget::SENSOR) {
-    uint8_t s = cmd.sensorId;
-    if (doc["resume_vwc"].is<float>()) {
-      sensorResumeVWC[s] = doc["resume_vwc"];
-      LOG_I(TAG, "Sensor %d resumeVWC updated to %.1f", s, sensorResumeVWC[s]);
-    }
+  } else if (strcmp(action, "close") == 0) {
+    valve.forceClose();
+
+  } else if (strcmp(action, "clear_fault") == 0) {
+    valve.clearFault();
+
+  } else if (strcmp(action, "configure") == 0) {
+    applyHaConfigure(doc);
+
+  } else {
+    LOG_W(TAG, "Unknown valve action: %s", action);
   }
 }
-
-// ── Automated pulse trigger ───────────────────────────────────────────────────
-// Fires if ANY sensor reads below its dry threshold and the valve is idle.
-
-void checkAutoTrigger() {
-  if (!autoTriggerEnabled) return;
-  if (!valve.canOpen()) return;
-
-  for (uint8_t s = 0; s < SENSOR_COUNT; s++) {
-    float vwc = latestVWC[s];
-    if (vwc < 1.0f) continue;  // no reading yet or sensor disconnected (reads ~0 V)
-
-    if (vwc < sensorResumeVWC[s]) {
-      LOG_I(TAG, "Auto-pulse: sensor %d VWC %.1f < resume %.1f",
-               s, vwc, sensorResumeVWC[s]);
-      valve.requestPulse();
-      return;  // one pulse request is enough
-    }
-  }
-}
-
-// ── Failsafe ──────────────────────────────────────────────────────────────────
 
 void checkFailsafe() {
+  if (failsafeDisconnectS == 0) return;
+
   uint32_t disconnectedS = mqtt.secondsSinceConnected();
   if (disconnectedS >= failsafeDisconnectS) {
     ValveTelemetry t = valve.telemetry();
@@ -168,24 +155,28 @@ void checkFailsafe() {
   }
 }
 
-// ── Setup / loop ──────────────────────────────────────────────────────────────
-
 void setup() {
   Serial.begin(115200);
-  // Wait up to 3 s for a serial monitor; skip silently in headless deployment.
   { unsigned long t = millis(); while (!Serial && millis() - t < 3000) {} }
   Serial.println("\n=== Irrigation Controller booting ===");
 
   pinMode(Pin::STATUS_LED, OUTPUT);
 
-  // Initialise per-sensor thresholds to firmware default
   for (uint8_t s = 0; s < SENSOR_COUNT; s++) {
-    sensorResumeVWC[s] = DefaultParams::RESUME_VWC;
-    latestVWC[s]       = -1.0f;
+    latestVWC[s] = -1.0f;
     sensors[s].begin();
   }
 
   valve.begin();
+
+  PersistedConfig persisted;
+  if (configStore.load(persisted)) {
+    applyPersistedConfig(persisted);
+    configSource = ConfigSource::PERSISTED;
+    LOG_I(TAG, "Booted with persisted HA config");
+  } else {
+    LOG_I(TAG, "No persisted config — waiting for HA configure");
+  }
 
   connectWiFi();
 
@@ -198,42 +189,37 @@ void setup() {
 void loop() {
   unsigned long now = millis();
 
-  // 1 — Maintain WiFi and MQTT
   maintainWiFi();
   mqtt.loop();
 
-  // 2 — Read sensors on interval
   if (now - lastSensorReadMs >= Sensor::READ_INTERVAL_MS) {
     lastSensorReadMs = now;
     for (uint8_t s = 0; s < SENSOR_COUNT; s++) {
       latestVWC[s] = sensors[s].readVWC();
     }
-    checkAutoTrigger();
   }
 
-  // 3 — Tick valve state machine
   valve.update();
-
-  // 4 — Failsafe check every loop (cheap comparison)
   checkFailsafe();
 
-  // 5 — Publish telemetry on interval
   if (now - lastTelemetryMs >= TELEMETRY_INTERVAL_MS) {
     lastTelemetryMs = now;
 
     for (uint8_t s = 0; s < SENSOR_COUNT; s++) {
-      mqtt.publishSensorTelemetry(s, latestVWC[s]);
+      mqtt.publishSensorTelemetry(s, latestVWC[s], sensors[s].lastVoltage());
     }
 
     ValveTelemetry t = valve.telemetry();
-    mqtt.publishValveTelemetry(t.valveOpen, t.runtimeTodayS, t.runtimeHourS,
-                               t.pulseCount, valveStateName(t.state),
-                               errorCodeStr(t.errorCode), t.faultReason);
+    mqtt.publishValveTelemetry(
+      t.valveOpen, t.pulseCount, t.actualPulseS, t.pulseElapsedS,
+      valveStateName(t.state), errorCodeStr(t.errorCode), t.faultReason,
+      valve.isConfigured(), configSourceStr(configSource));
 
-    LOG_I(TAG, "valve=%s s0=%.1f%% s1=%.1f%%",
-             valveStateName(t.state), latestVWC[0], latestVWC[1]);
+    LOG_I(TAG, "valve=%s cfg=%s", valveStateName(t.state), configSourceStr(configSource));
+    for (uint8_t s = 0; s < SENSOR_COUNT; s++) {
+      LOG_I(TAG, "  s%d=%.1f%% (%.2fV)", s, latestVWC[s], sensors[s].lastVoltage());
+    }
 
-    // Blink LED to show we're alive
     digitalWrite(Pin::STATUS_LED, !digitalRead(Pin::STATUS_LED));
   }
 }

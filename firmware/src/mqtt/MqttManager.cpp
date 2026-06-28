@@ -35,12 +35,14 @@ MqttManager::MqttManager(const char* broker, uint16_t port,
   , _sensorCount(sensorCount)
   , _lastConnectedMs(0)
   , _lastReconnectAttemptMs(0)
+  , _hasEverConnected(false)
 {
   _instance = this;
 }
 
 void MqttManager::begin(const char* clientId) {
   _clientId = clientId;
+  _lastConnectedMs = millis();
   _mqtt.setServer(_broker, _port);
   _mqtt.setCallback(MqttManager::onMqttMessage);
   _mqtt.setBufferSize(768);   // large enough for discovery payloads (~600 B)
@@ -70,6 +72,7 @@ bool MqttManager::isConnected() {
 
 uint32_t MqttManager::secondsSinceConnected() {
   if (_mqtt.connected()) return 0;
+  if (!_hasEverConnected) return 0;
   return (millis() - _lastConnectedMs) / 1000UL;
 }
 
@@ -79,33 +82,20 @@ void MqttManager::publishDiscovery() {
   if (!_mqtt.connected()) return;
   LOG_I(TAG, "Publishing MQTT discovery configs");
 
-  for (uint8_t s = 0; s < _sensorCount; s++) {
-    discoverSensorVwc(s);
-  }
-
-  discoverControllerOnline();
-  discoverValveOpen();
-  discoverValveState();
-
-  discoverValveCounter("Irrigation Valve Runtime Today",
-                       "irrigation_valve_runtime_today",
-                       "runtime_today_s", "total_increasing", "s",
-                       "mdi:timer-outline");
-
-  discoverValveCounter("Irrigation Valve Runtime Hour",
-                       "irrigation_valve_runtime_hour",
-                       "runtime_hour_s", "measurement", "s",
-                       "mdi:timer-outline");
-
   discoverValveCounter("Irrigation Valve Pulse Count",
                        "irrigation_valve_pulse_count",
                        "pulse_count", "total_increasing", "",
                        "mdi:counter");
 
-  discoverValveErrorCode();
+  discoverValveCounter("Irrigation Pulse Elapsed Seconds",
+                       "irrigation_pulse_elapsed_s",
+                       "pulse_elapsed_s", "measurement", "s",
+                       "mdi:timer-sand");
 
-  discoverButton("Irrigation Valve Pulse",  "irrigation_valve_pulse",
-                 "pulse",       "mdi:water");
+  discoverValveFaultReason();
+  discoverValveConfigured();
+  discoverValveConfigSource();
+
   discoverButton("Irrigation Valve Close",  "irrigation_valve_close",
                  "close",       "mdi:valve-closed");
   discoverButton("Irrigation Clear Fault",  "irrigation_clear_fault",
@@ -220,6 +210,61 @@ void MqttManager::discoverValveCounter(const char* name, const char* objectId,
   publishDiscoveryMsg("sensor", objectId, payload);
 }
 
+
+void MqttManager::discoverValveFaultReason() {
+  char payload[600];
+  snprintf(payload, sizeof(payload),
+    "{"
+      "\"name\":\"Irrigation Fault Reason\","
+      "\"object_id\":\"irrigation_fault_reason\","
+      "\"unique_id\":\"irrigation_fault_reason\","
+      "\"state_topic\":\"" MQTT_ROOT "/valve/" MQTT_TOPIC_TELEMETRY "\","
+      "\"value_template\":\"{{ value_json.fault_reason | default('') }}\","
+      "\"icon\":\"mdi:alert-outline\","
+      "%s,"
+      "%s"
+    "}",
+    AVAIL_BLOCK, DEVICE_BLOCK);
+
+  publishDiscoveryMsg("sensor", "irrigation_fault_reason", payload);
+}
+
+void MqttManager::discoverValveConfigured() {
+  char payload[640];
+  snprintf(payload, sizeof(payload),
+    "{"
+      "\"name\":\"Irrigation Firmware Configured\","
+      "\"object_id\":\"irrigation_firmware_configured\","
+      "\"unique_id\":\"irrigation_firmware_configured\","
+      "\"state_topic\":\"" MQTT_ROOT "/valve/" MQTT_TOPIC_TELEMETRY "\","
+      "\"value_template\":\"{{ value_json.configured }}\","
+      "\"icon\":\"mdi:check-circle-outline\","
+      "%s,"
+      "%s"
+    "}",
+    AVAIL_BLOCK, DEVICE_BLOCK);
+
+  publishDiscoveryMsg("binary_sensor", "irrigation_firmware_configured", payload);
+}
+
+void MqttManager::discoverValveConfigSource() {
+  char payload[640];
+  snprintf(payload, sizeof(payload),
+    "{"
+      "\"name\":\"Irrigation Config Source\","
+      "\"object_id\":\"irrigation_config_source\","
+      "\"unique_id\":\"irrigation_config_source\","
+      "\"state_topic\":\"" MQTT_ROOT "/valve/" MQTT_TOPIC_TELEMETRY "\","
+      "\"value_template\":\"{{ value_json.config_source }}\","
+      "\"icon\":\"mdi:database-outline\","
+      "%s,"
+      "%s"
+    "}",
+    AVAIL_BLOCK, DEVICE_BLOCK);
+
+  publishDiscoveryMsg("sensor", "irrigation_config_source", payload);
+}
+
 void MqttManager::discoverValveErrorCode() {
   char payload[600];
   snprintf(payload, sizeof(payload),
@@ -279,16 +324,17 @@ void MqttManager::publishDiscoveryMsg(const char* domain, const char* objectId,
 
 // ── Telemetry publish ─────────────────────────────────────────────────────────
 
-void MqttManager::publishSensorTelemetry(uint8_t sensorId, float vwc) {
+void MqttManager::publishSensorTelemetry(uint8_t sensorId, float vwc, float voltage) {
   if (!_mqtt.connected()) return;
 
   char topic[64];
   sensorTopic(topic, sizeof(topic), sensorId, MQTT_TOPIC_TELEMETRY);
 
   JsonDocument doc;
-  doc["sensor"] = sensorId;
-  doc["vwc"]    = serialized(String(vwc, 1));
-  doc["ts"]     = millis() / 1000UL;
+  doc["sensor"]  = sensorId;
+  doc["vwc"]     = serialized(String(vwc, 1));
+  doc["voltage"] = serialized(String(voltage, 2));
+  doc["ts"]      = millis() / 1000UL;
 
   char buf[128];
   serializeJson(doc, buf, sizeof(buf));
@@ -296,27 +342,31 @@ void MqttManager::publishSensorTelemetry(uint8_t sensorId, float vwc) {
   LOG_D(TAG, "sensor %d telemetry: %s", sensorId, buf);
 }
 
-void MqttManager::publishValveTelemetry(bool valveOpen, uint32_t runtimeTodayS,
-                                        uint32_t runtimeHourS, uint32_t pulseCount,
+void MqttManager::publishValveTelemetry(bool valveOpen, uint32_t pulseCount,
+                                        uint32_t actualPulseS, uint32_t pulseElapsedS,
                                         const char* state,
                                         const char* errorCode,
-                                        const char* faultReason) {
+                                        const char* faultReason,
+                                        bool configured,
+                                        const char* configSource) {
   if (!_mqtt.connected()) return;
 
   char topic[64];
   valveTopic(topic, sizeof(topic), MQTT_TOPIC_TELEMETRY);
 
   JsonDocument doc;
-  doc["valve_open"]      = valveOpen;
-  doc["runtime_today_s"] = runtimeTodayS;
-  doc["runtime_hour_s"]  = runtimeHourS;
-  doc["pulse_count"]     = pulseCount;
-  doc["state"]           = state;
-  doc["error_code"]      = errorCode ? errorCode : "none";
+  doc["valve_open"]       = valveOpen;
+  doc["pulse_count"]      = pulseCount;
+  doc["actual_pulse_s"]   = actualPulseS;
+  doc["pulse_elapsed_s"]  = pulseElapsedS;
+  doc["state"]            = state;
+  doc["error_code"]       = errorCode ? errorCode : "none";
+  doc["configured"]       = configured;
+  doc["config_source"]    = configSource ? configSource : "none";
   if (faultReason)       doc["fault_reason"] = faultReason;
-  doc["ts"]              = millis() / 1000UL;
+  doc["ts"]               = millis() / 1000UL;
 
-  char buf[256];
+  char buf[320];
   serializeJson(doc, buf, sizeof(buf));
   _mqtt.publish(topic, buf, false);
   LOG_D(TAG, "valve telemetry: %s", buf);
@@ -340,6 +390,8 @@ bool MqttManager::reconnect() {
                           lwtTopic, 1, true, "offline");
   if (ok) {
     LOG_I(TAG, "MQTT connected");
+    _hasEverConnected = true;
+    _lastConnectedMs = millis();
     subscribeAll();
     publishValveStatus("online");
     publishDiscovery();
@@ -355,12 +407,6 @@ void MqttManager::subscribeAll() {
   valveTopic(topic, sizeof(topic), MQTT_TOPIC_COMMAND);
   _mqtt.subscribe(topic);
   LOG_D(TAG, "Subscribed: %s", topic);
-
-  for (uint8_t s = 0; s < _sensorCount; s++) {
-    sensorTopic(topic, sizeof(topic), s, MQTT_TOPIC_CONFIG);
-    _mqtt.subscribe(topic);
-    LOG_D(TAG, "Subscribed: %s", topic);
-  }
 }
 
 void MqttManager::sensorTopic(char* buf, size_t len,
@@ -394,16 +440,6 @@ void MqttManager::handleMessage(char* topic, byte* payload, unsigned int length)
     MqttCommand cmd{ .target = MqttCommandTarget::VALVE, .sensorId = 0, .doc = &doc };
     _commandCb(cmd);
     return;
-  }
-
-  for (uint8_t s = 0; s < _sensorCount; s++) {
-    char sensorCfg[64];
-    sensorTopic(sensorCfg, sizeof(sensorCfg), s, MQTT_TOPIC_CONFIG);
-    if (strcmp(topic, sensorCfg) == 0) {
-      MqttCommand cmd{ .target = MqttCommandTarget::SENSOR, .sensorId = s, .doc = &doc };
-      _commandCb(cmd);
-      return;
-    }
   }
 
   LOG_W(TAG, "Unrecognised topic: %s", topic);

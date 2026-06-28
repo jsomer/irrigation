@@ -1,61 +1,88 @@
 # Home Assistant Drip Control
 
-Home Assistant runs the drip irrigation algorithm when `input_select.irrigation_control_mode` is `auto`. The firmware opens and closes the valve on MQTT command and enforces hard safety limits; it does not decide when to irrigate in normal operation.
+Simple moisture-driven irrigation. Firmware runs the valve state machine; Home Assistant decides when to pulse.
 
-See also: [theory_of_operation.md](theory_of_operation.md) (firmware), [ai_tuning_guide.md](ai_tuning_guide.md) (parameter tuning), [schemas/irrigation_cycle_log.md](../schemas/irrigation_cycle_log.md) (cycle events).
-
----
-
-## Control modes
-
-| Mode | Behavior |
-|------|----------|
-| `disabled` | No auto cycles; manual buttons only |
-| `manual` | Default after deploy; no auto cycles |
-| `auto` | HA drip state machine (this document) |
-| `firmware_fallback` | Pushes `auto_trigger_enabled: true` to firmware; on-device `resume_vwc` trigger only |
+See [system_spec.md](system_spec.md) for purpose and [theory_of_operation.md](theory_of_operation.md) for firmware detail.
 
 ---
 
-## Moisture bands (per sensor)
+## Division of responsibility
 
-Each sensor has three VWC thresholds (`input_number` helpers in the package):
+| Layer | Responsibility |
+|-------|----------------|
+| **Firmware** | Accept `pulse_duration_s`, open valve, close after duration, SETTLING, IDLE, emergency limits (max pulse, 24 h stuck-valve), MQTT failsafe |
+| **Home Assistant** | Read sensors, block on stale/max/min moisture, compute pulse length, request pulse when valve is `idle` |
 
-| Band | Helper | Role |
-|------|--------|------|
-| Resume | `irrigation_sensorN_resume_vwc` | Dry enough to start a new dry event (default 35 %) |
-| Target | `irrigation_sensorN_target_vwc` | Moisture goal; resets cycle counter when both sensors reach it (default 44 %) |
-| Max | `irrigation_sensorN_max_vwc` | Early stop — HA sends `close` during pulse (default 50 %) |
+Home Assistant does **not** add a settle delay. Firmware `settling` phase covers post-pulse wait.
 
-**Auto-start conditions** (all must be true):
-
-- Mode is `auto`, valve idle, controller online
-- No leak or sensor fault
-- At least one sensor below `resume_vwc`, both below `target_vwc`, both valid (VWC ≥ 1 %)
-- Cycles this dry event &lt; `max_cycles_per_event`
-- Runtime budgets allow next pulse duration
-- Settle period elapsed since last valve state change
+Minimum gap between auto pulses = firmware settle time only (valve must return to `idle` before HA requests the next pulse). There is no additional HA `last_changed` settle guard.
 
 ---
 
-## State machine
+## Auto-start rule
 
-```mermaid
-stateDiagram-v2
-  [*] --> Idle
-  Idle --> Pulsing: AutoStartCycle
-  Pulsing --> Settling: pulse_ends
-  Pulsing --> Settling: StopOnMaxVWC_or_abort
-  Settling --> Idle: settle_complete
-  Idle --> LeakFault: leak_detected
-  Idle --> SensorFault: invalid_VWC
-  Pulsing --> LeakFault: mid_cycle_leak
-  Pulsing --> SensorFault: invalid_VWC_during_run
-  LeakFault --> Manual: force_manual_mode
-  SensorFault --> Manual: force_manual_mode
+When mode is `auto`, valve is `idle`, controller online, and at least one sensor slot is enabled:
+
+| Condition | Action |
+|-----------|--------|
+| No sensors enabled | Do not water |
+| Any **enabled** sensor unavailable or stale (> 90 s) | Do not water |
+| Any **enabled** sensor ≥ `max_vwc` | Do not water |
+| All **enabled** sensors ≥ `min_vwc` | Do not water |
+| At least one **enabled** sensor < `min_vwc` | **Request pulse** |
+
+Freshness uses MQTT sensor `last_updated` vs 90 s threshold. Disabled slots are ignored entirely.
+
+---
+
+## Enabling sensor slots
+
+Firmware publishes all six analog pins (A0–A5). Home Assistant controls which slots participate in auto logic:
+
+| Helper | Default | Purpose |
+|--------|---------|---------|
+| `input_boolean.irrigation_sensor_N_enabled` | on for N=0,1; off for 2–5 | Include slot in auto, freshness, pulse sizing |
+| `input_text.irrigation_sensor_N_label` | `Sensor N` | Optional dashboard label |
+
+**Add a probe:** wire VH400 to the next free pin (A0–A5), turn on `irrigation_sensor_N_enabled`, set min/target/max.
+
+**Remove a probe:** turn off `irrigation_sensor_N_enabled` (no reflash required).
+
+Deploy both `irrigation.yaml` and `irrigation_sensors.yaml` to `config/packages/`.
+
+---
+
+## Per-probe calibration
+
+Firmware publishes **raw** VH400 VWC from the factory curve. Each probe can differ; HA applies per-sensor calibration before auto logic:
+
+```
+calibrated = clamp(raw × scale + offset, 0, 100)
 ```
 
-After settling → idle, HA waits `leak_check_delay_min`, then runs post-cycle evaluation and logs `irrigation_cycle_complete`.
+| Helper | Default | Purpose |
+|--------|---------|---------|
+| `sensor.irrigation_sensor_N_vwc_raw` | — | Unadjusted firmware reading |
+| `sensor.irrigation_sensor_N_vwc` | — | Calibrated value (used everywhere) |
+| `input_number.irrigation_sensorN_vwc_scale` | 1.0 | Gain |
+| `input_number.irrigation_sensorN_vwc_offset` | 0 | Baseline shift (%) |
+
+**Side-by-side alignment:** bury both probes in the same moist soil, wait ~1 min, tap **Calibrate S0 to Match S1** (or the reverse). That sets offset so calibrated readings match at the current moisture. Fine-tune scale if response shape still differs.
+
+Scripts: `irrigation_calibrate_sensor_to_reference` (parameterized), `irrigation_calibrate_sensor0_to_sensor1`, `irrigation_calibrate_sensor1_to_sensor0`, `irrigation_reset_sensor_calibration`, `irrigation_reset_sensorN_calibration` (aliases for 0/1).
+
+---
+
+## Variable pulse length
+
+On each pulse request, HA computes moisture deficit toward target for each **enabled** sensor and uses the larger deficit:
+
+```
+deficit = max((target - vwc) / (target - min), 0)   capped at 1.0
+pulse_min = min_pulse + (max_pulse - min_pulse) × deficit
+```
+
+Published as `{"action":"pulse","pulse_duration_s":…}`.
 
 ---
 
@@ -63,98 +90,52 @@ After settling → idle, HA waits `leak_check_delay_min`, then runs post-cycle e
 
 | Script | Purpose |
 |--------|---------|
-| `irrigation_sync_firmware` | MQTT `configure` with all timing/limit sliders + `auto_trigger_enabled` |
-| `irrigation_begin_cycle` | Snapshot VWC → sync firmware → MQTT `pulse` → increment cycle counter |
-| `irrigation_abort_and_close` | MQTT `close` |
-| `irrigation_set_leak_fault` | Set leak fault, switch to `manual`, close valve, notify |
-| `irrigation_set_sensor_fault` | Set sensor fault, switch to `manual`, close valve, notify |
-| `irrigation_post_cycle_evaluate` | Leak/target logic → fire cycle log |
-| `irrigation_log_cycle_complete` | `event.fire` `irrigation_cycle_complete` + notification |
+| `irrigation_sync_firmware` | MQTT `configure` — settle, max pulse, failsafe |
+| `irrigation_request_pulse` | Sync + compute duration + MQTT `pulse` |
+| `irrigation_force_close` | MQTT `close` |
+| `irrigation_clear_fault` | MQTT `clear_fault` |
 
 ---
 
 ## Automations
 
-### Sync and config
-
-| Automation | Trigger | Action |
-|------------|---------|--------|
-| Irrigation Apply Firmware Config | Timing/limit sliders or control mode change | `irrigation_sync_firmware` |
-| Irrigation Apply Sensor 0/1 Config | `resume_vwc` slider change | MQTT sensor config |
-| Irrigation Sync Firmware On Connect | HA start or controller online | Push sensor configs + full sync |
-
-### Alerts
-
-| Automation | Trigger | Action |
-|------------|---------|--------|
-| Irrigation Valve Fault Alert | Valve state → `fault` | Notification |
-| Irrigation Controller Offline Alert | Controller offline 2 min | Notification |
-
-### Auto control
-
-| Automation | Trigger | Action |
-|------------|---------|--------|
-| Irrigation Reset Dry Event Counter | Both sensors ≥ target VWC | Reset `counter.irrigation_cycles_this_event` |
-| Irrigation Snapshot VWC On Pulsing | Valve → `pulsing` | Record before-VWC |
-| Irrigation Auto Start Cycle | Sensor/valve change or every 5 min | `irrigation_begin_cycle` if conditions met |
-| Irrigation Stop On Max VWC | Sensor change or every 30 s while pulsing | `irrigation_abort_and_close` if max VWC hit |
-| Irrigation Sensor Invalid During Run | VWC &lt; 1 % while pulsing | `irrigation_set_sensor_fault` |
-| Irrigation Mid Cycle Leak Check | Start of pulse + half duration | Leak fault if water without moisture gain |
-| Irrigation Block Start On Invalid Sensor | VWC &lt; 1 % anytime | Set sensor fault flag |
-
-### Cycle logging
-
-| Automation | Trigger | Action |
-|------------|---------|--------|
-| Irrigation Record VWC At Cycle End | `pulsing` → `settling` | Record end-VWC |
-| Irrigation Post Settle Evaluate | `settling` → `idle` | Delay → `irrigation_post_cycle_evaluate` |
-| Irrigation Snapshot VWC At 60 Minutes | `settling` → `idle` | Record 60 m VWC for AI analysis |
-
-### Safety backstop
-
-| Automation | Trigger | Action |
-|------------|---------|--------|
-| Irrigation Stuck Valve Overrun | Every 1 min while pulsing | Force close if pulsing &gt; `max_single_run_min + 2 min` |
-
-This HA overrun backstop is separate from firmware E001 (emergency 7200 s pulse cap).
+| Automation | Purpose |
+|------------|---------|
+| Irrigation Sync On Connect / Start | Push configure after boot or MQTT reconnect |
+| Irrigation Auto Request Pulse | When block reason = `Ready`, every 5 min |
+| Irrigation Stop On Max VWC | Force close if any **enabled** sensor ≥ max while pulsing |
+| Irrigation Valve Fault Alert | Notification on `fault` state |
+| Irrigation Record Pulse Start Moisture | Store VWC for enabled slots when pulse begins |
+| Irrigation Log Settle Snapshot | Record enabled slots at end of settle (`settling` → `idle`) |
 
 ---
 
-## Leak detection
+## Settle snapshot (analysis)
 
-**Post-settle** (`irrigation_post_cycle_evaluate`):
+When the valve completes settle and returns to `idle`, HA records moisture for all **enabled** slots:
 
-```
-gallons_estimated >= min_gallons_for_leak_check
-AND max(delta_sensor_0, delta_sensor_1) < min_vwc_delta
-→ outcome: leak_suspect → irrigation_set_leak_fault
-```
-
-**Mid-cycle** (at half of `duration_min`, minimum 3 min):
-
-Same logic but `min_delta` threshold is 25 % of `min_vwc_delta`.
-
-**Outcomes:**
-
-| Outcome | Meaning |
-|---------|---------|
-| `target_reached` | Both sensors ≥ target VWC; reset dry-event counter |
-| `leak_suspect` | Water delivered without expected moisture increase |
-| `normal` | Cycle complete, target not yet reached |
-
----
-
-## Resolved template entities
-
-The package defines `*_resolved` template sensors that read from either short MQTT Discovery IDs (`sensor.irrigation_sensor_0_vwc`) or legacy long IDs (`sensor.irrigation_controller_irrigation_*`). **Automations use resolved entities.** Dashboards should migrate to resolved IDs for forward compatibility.
-
-Key resolved entities:
-
-| Entity | Purpose |
+| Output | Purpose |
 |--------|---------|
-| `sensor.irrigation_sensor_0_vwc_resolved` | Zone 0 moisture |
-| `sensor.irrigation_sensor_1_vwc_resolved` | Zone 1 moisture |
-| `sensor.irrigation_valve_state_resolved` | `idle` / `pulsing` / `settling` / `fault` |
-| `binary_sensor.irrigation_controller_online_resolved` | MQTT connectivity |
-| `sensor.irrigation_operational_status` | Combined HA status (idle, irrigating, leak_fault, etc.) |
-| `sensor.irrigation_valve_phase` | Live countdown during pulse/settle |
+| `input_number.irrigation_last_settle_sN_vwc` | Last post-settle reading per slot (recorder history) |
+| `input_datetime.irrigation_last_settle_at` | Timestamp of last snapshot |
+| Event `irrigation_settle_snapshot` | Full payload for export/analysis |
+| Logbook entry | Human-readable summary with deltas |
+
+Event fields: `sensors` (list of `{id, vwc, vwc_before, delta}` for enabled slots), `actual_pulse_s`, `requested_pulse_s`, `recorded_at`. Legacy per-slot helpers S0–S5 remain for dashboard/history.
+
+Pulse-start moisture is captured when valve enters `pulsing` so deltas reflect the full pulse + settle cycle. Early force-close during pulse (no settle) does not emit a snapshot.
+
+**Analysis:** collect **~1 week** of auto cycles, then export `irrigation_settle_snapshot` events and sensor history — see [data_extraction.md](data_extraction.md) and [schemas/irrigation_settle_snapshot.md](../schemas/irrigation_settle_snapshot.md).
+
+---
+
+## MQTT commands
+
+```json
+{"action":"configure","settle_duration_s":1200,"max_pulse_duration_s":3600,"failsafe_disconnect_s":1800}
+{"action":"pulse","pulse_duration_s":1800}
+{"action":"close"}
+{"action":"clear_fault"}
+```
+
+Full schema: [schemas/mqtt_topics.md](../schemas/mqtt_topics.md).

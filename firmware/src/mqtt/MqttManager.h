@@ -10,7 +10,6 @@
 
 enum class MqttCommandTarget : uint8_t {
   VALVE,   // irrigation/valve/command
-  SENSOR,  // irrigation/sensor/<id>/config
 };
 
 struct MqttCommand {
@@ -45,15 +44,17 @@ public:
   // Called automatically after each successful connect.
   void publishDiscovery();
 
-  // Publish VWC reading for one sensor zone.
-  void publishSensorTelemetry(uint8_t sensorId, float vwc);
+  // Publish VWC and signal voltage for one sensor zone.
+  void publishSensorTelemetry(uint8_t sensorId, float vwc, float voltage);
 
   // Publish valve state telemetry.
-  void publishValveTelemetry(bool valveOpen, uint32_t runtimeTodayS,
-                             uint32_t runtimeHourS, uint32_t pulseCount,
+  void publishValveTelemetry(bool valveOpen, uint32_t pulseCount,
+                             uint32_t actualPulseS, uint32_t pulseElapsedS,
                              const char* state,
                              const char* errorCode   = "none",
-                             const char* faultReason = nullptr);
+                             const char* faultReason = nullptr,
+                             bool configured         = false,
+                             const char* configSource = "none");
 
   // Publish valve online/offline status (also used as LWT).
   void publishValveStatus(const char* status);
@@ -72,6 +73,7 @@ private:
   CommandCallback _commandCb;
   unsigned long   _lastConnectedMs;
   unsigned long   _lastReconnectAttemptMs;
+  bool            _hasEverConnected;
 
   static constexpr uint32_t RECONNECT_INTERVAL_MS = 5000;
 
@@ -90,6 +92,9 @@ private:
                             const char* field, const char* stateClass,
                             const char* unit, const char* icon);
   void discoverValveErrorCode();
+  void discoverValveFaultReason();
+  void discoverValveConfigured();
+  void discoverValveConfigSource();
   void discoverControllerOnline();
   void discoverButton(const char* name, const char* objectId,
                       const char* action, const char* icon);

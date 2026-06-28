@@ -5,293 +5,402 @@ views:
     icon: mdi:sprinkler-variant
     type: sections
     sections:
-
       - type: grid
         title: Monitoring
         cards:
-
-          - type: history-graph
-            title: Moisture History (48 h)
-            hours_to_show: 48
-            entities:
-              - entity: sensor.irrigation_controller_irrigation_sensor_0_vwc
-                name: Sensor 0
-              - entity: sensor.irrigation_controller_irrigation_sensor_1_vwc
-                name: Sensor 1
-
-          - type: gauge
-            name: Sensor 0
-            entity: sensor.irrigation_controller_irrigation_sensor_0_vwc
-            unit: "%"
-            min: 0
-            max: 60
-            severity:
-              green: 35
-              yellow: 25
-              red: 0
-
-          - type: gauge
-            name: Sensor 1
-            entity: sensor.irrigation_controller_irrigation_sensor_1_vwc
-            unit: "%"
-            min: 0
-            max: 60
-            severity:
-              green: 35
-              yellow: 25
-              red: 0
+          - type: vertical-stack
+            cards:
+              - type: history-graph
+                title: Moisture (8 h)
+                hours_to_show: 8
+                entities:
+                  - entity: sensor.irrigation_sensor_0_vwc
+                    name: Sensor 0
+                  - entity: sensor.irrigation_sensor_1_vwc
+                    name: Sensor 1
+                  - entity: sensor.irrigation_sensor_2_vwc
+                    name: Sensor 2
+                  - entity: sensor.irrigation_sensor_3_vwc
+                    name: Sensor 3
+                  - entity: sensor.irrigation_sensor_4_vwc
+                    name: Sensor 4
+                  - entity: sensor.irrigation_sensor_5_vwc
+                    name: Sensor 5
+              - type: markdown
+                title: Zone Delta
+                content: "{{ states('sensor.irrigation_zone_delta') }}"
 
           - type: entities
-            title: Last Cycle Snapshots
-            entities:
-              - entity: input_number.irrigation_cycle_vwc_before_0
-                name: S0 Before
-              - entity: input_number.irrigation_cycle_vwc_end_0
-                name: S0 End
-              - entity: input_number.irrigation_cycle_vwc_check_0
-                name: S0 Check
-              - entity: input_number.irrigation_cycle_vwc_60m_0
-                name: S0 +60m
-              - entity: input_number.irrigation_cycle_vwc_before_1
-                name: S1 Before
-              - entity: input_number.irrigation_cycle_vwc_end_1
-                name: S1 End
-              - entity: input_number.irrigation_cycle_vwc_check_1
-                name: S1 Check
-              - entity: input_number.irrigation_cycle_vwc_60m_1
-                name: S1 +60m
-
-          - type: markdown
-            content: >
-              **Resume** {{ states('input_number.irrigation_sensor0_resume_vwc') | int }}%
-              · **Target** {{ states('input_number.irrigation_sensor0_target_vwc') | int }}%
-              · **Max** {{ states('input_number.irrigation_sensor0_max_vwc') | int }}%
-
-          - type: entities
-            title: Moisture Thresholds — Sensor 0
+            title: Sensor Slots (A0–A5)
             show_header_toggle: false
             entities:
-              - entity: input_number.irrigation_sensor0_resume_vwc
-              - entity: input_number.irrigation_sensor0_target_vwc
-              - entity: input_number.irrigation_sensor0_max_vwc
+              - entity: input_boolean.irrigation_sensor_0_enabled
+                name: S0 Enabled (A0)
+              - entity: input_text.irrigation_sensor_0_label
+                name: S0 Label
+              - entity: input_boolean.irrigation_sensor_1_enabled
+                name: S1 Enabled (A1)
+              - entity: input_text.irrigation_sensor_1_label
+                name: S1 Label
+              - entity: input_boolean.irrigation_sensor_2_enabled
+                name: S2 Enabled (A2)
+              - entity: input_text.irrigation_sensor_2_label
+                name: S2 Label
+              - entity: input_boolean.irrigation_sensor_3_enabled
+                name: S3 Enabled (A3)
+              - entity: input_text.irrigation_sensor_3_label
+                name: S3 Label
+              - entity: input_boolean.irrigation_sensor_4_enabled
+                name: S4 Enabled (A4)
+              - entity: input_text.irrigation_sensor_4_label
+                name: S4 Label
+              - entity: input_boolean.irrigation_sensor_5_enabled
+                name: S5 Enabled (A5)
+              - entity: input_text.irrigation_sensor_5_label
+                name: S5 Label
+
+          - type: conditional
+            conditions:
+              - entity: input_boolean.irrigation_sensor_0_enabled
+                state: "on"
+            card:
+              type: vertical-stack
+              cards:
+                - type: gauge
+                  name: Sensor 0
+                  entity: sensor.irrigation_sensor_0_vwc
+                  unit: "%"
+                  min: 0
+                  max: 60
+                - type: entities
+                  title: Thresholds — Sensor 0
+                  entities:
+                    - entity: input_number.irrigation_sensor0_min_vwc
+                    - entity: input_number.irrigation_sensor0_target_vwc
+                    - entity: input_number.irrigation_sensor0_max_vwc
+                - type: entities
+                  title: Calibration — Sensor 0
+                  entities:
+                    - entity: sensor.irrigation_sensor_0_vwc_raw
+                      name: Raw VWC
+                    - entity: sensor.irrigation_sensor_0_voltage
+                      name: Signal V
+                    - entity: sensor.irrigation_sensor_0_vwc
+                      name: Calibrated VWC
+                    - entity: input_number.irrigation_sensor0_vwc_scale
+                      name: Scale
+                    - entity: input_number.irrigation_sensor0_vwc_offset
+                      name: Offset
+
+          - type: conditional
+            conditions:
+              - entity: input_boolean.irrigation_sensor_1_enabled
+                state: "on"
+            card:
+              type: vertical-stack
+              cards:
+                - type: gauge
+                  name: Sensor 1
+                  entity: sensor.irrigation_sensor_1_vwc
+                  unit: "%"
+                  min: 0
+                  max: 60
+                - type: entities
+                  title: Thresholds — Sensor 1
+                  entities:
+                    - entity: input_number.irrigation_sensor1_min_vwc
+                    - entity: input_number.irrigation_sensor1_target_vwc
+                    - entity: input_number.irrigation_sensor1_max_vwc
+                - type: entities
+                  title: Calibration — Sensor 1
+                  entities:
+                    - entity: sensor.irrigation_sensor_1_vwc_raw
+                      name: Raw VWC
+                    - entity: sensor.irrigation_sensor_1_voltage
+                      name: Signal V
+                    - entity: sensor.irrigation_sensor_1_vwc
+                      name: Calibrated VWC
+                    - entity: input_number.irrigation_sensor1_vwc_scale
+                      name: Scale
+                    - entity: input_number.irrigation_sensor1_vwc_offset
+                      name: Offset
+
+          - type: conditional
+            conditions:
+              - entity: input_boolean.irrigation_sensor_2_enabled
+                state: "on"
+            card:
+              type: vertical-stack
+              cards:
+                - type: gauge
+                  name: Sensor 2
+                  entity: sensor.irrigation_sensor_2_vwc
+                  unit: "%"
+                  min: 0
+                  max: 60
+                - type: entities
+                  title: Thresholds — Sensor 2
+                  entities:
+                    - entity: input_number.irrigation_sensor2_min_vwc
+                    - entity: input_number.irrigation_sensor2_target_vwc
+                    - entity: input_number.irrigation_sensor2_max_vwc
+                - type: entities
+                  title: Calibration — Sensor 2
+                  entities:
+                    - entity: sensor.irrigation_sensor_2_vwc_raw
+                      name: Raw VWC
+                    - entity: sensor.irrigation_sensor_2_voltage
+                      name: Signal V
+                    - entity: sensor.irrigation_sensor_2_vwc
+                      name: Calibrated VWC
+                    - entity: input_number.irrigation_sensor2_vwc_scale
+                      name: Scale
+                    - entity: input_number.irrigation_sensor2_vwc_offset
+                      name: Offset
+
+          - type: conditional
+            conditions:
+              - entity: input_boolean.irrigation_sensor_3_enabled
+                state: "on"
+            card:
+              type: vertical-stack
+              cards:
+                - type: gauge
+                  name: Sensor 3
+                  entity: sensor.irrigation_sensor_3_vwc
+                  unit: "%"
+                  min: 0
+                  max: 60
+                - type: entities
+                  title: Thresholds — Sensor 3
+                  entities:
+                    - entity: input_number.irrigation_sensor3_min_vwc
+                    - entity: input_number.irrigation_sensor3_target_vwc
+                    - entity: input_number.irrigation_sensor3_max_vwc
+                - type: entities
+                  title: Calibration — Sensor 3
+                  entities:
+                    - entity: sensor.irrigation_sensor_3_vwc_raw
+                      name: Raw VWC
+                    - entity: sensor.irrigation_sensor_3_voltage
+                      name: Signal V
+                    - entity: sensor.irrigation_sensor_3_vwc
+                      name: Calibrated VWC
+                    - entity: input_number.irrigation_sensor3_vwc_scale
+                      name: Scale
+                    - entity: input_number.irrigation_sensor3_vwc_offset
+                      name: Offset
+
+          - type: conditional
+            conditions:
+              - entity: input_boolean.irrigation_sensor_4_enabled
+                state: "on"
+            card:
+              type: vertical-stack
+              cards:
+                - type: gauge
+                  name: Sensor 4
+                  entity: sensor.irrigation_sensor_4_vwc
+                  unit: "%"
+                  min: 0
+                  max: 60
+                - type: entities
+                  title: Thresholds — Sensor 4
+                  entities:
+                    - entity: input_number.irrigation_sensor4_min_vwc
+                    - entity: input_number.irrigation_sensor4_target_vwc
+                    - entity: input_number.irrigation_sensor4_max_vwc
+                - type: entities
+                  title: Calibration — Sensor 4
+                  entities:
+                    - entity: sensor.irrigation_sensor_4_vwc_raw
+                      name: Raw VWC
+                    - entity: sensor.irrigation_sensor_4_voltage
+                      name: Signal V
+                    - entity: sensor.irrigation_sensor_4_vwc
+                      name: Calibrated VWC
+                    - entity: input_number.irrigation_sensor4_vwc_scale
+                      name: Scale
+                    - entity: input_number.irrigation_sensor4_vwc_offset
+                      name: Offset
+
+          - type: conditional
+            conditions:
+              - entity: input_boolean.irrigation_sensor_5_enabled
+                state: "on"
+            card:
+              type: vertical-stack
+              cards:
+                - type: gauge
+                  name: Sensor 5
+                  entity: sensor.irrigation_sensor_5_vwc
+                  unit: "%"
+                  min: 0
+                  max: 60
+                - type: entities
+                  title: Thresholds — Sensor 5
+                  entities:
+                    - entity: input_number.irrigation_sensor5_min_vwc
+                    - entity: input_number.irrigation_sensor5_target_vwc
+                    - entity: input_number.irrigation_sensor5_max_vwc
+                - type: entities
+                  title: Calibration — Sensor 5
+                  entities:
+                    - entity: sensor.irrigation_sensor_5_vwc_raw
+                      name: Raw VWC
+                    - entity: sensor.irrigation_sensor_5_voltage
+                      name: Signal V
+                    - entity: sensor.irrigation_sensor_5_vwc
+                      name: Calibrated VWC
+                    - entity: input_number.irrigation_sensor5_vwc_scale
+                      name: Scale
+                    - entity: input_number.irrigation_sensor5_vwc_offset
+                      name: Offset
 
           - type: markdown
-            content: >
-              **Resume** {{ states('input_number.irrigation_sensor1_resume_vwc') | int }}%
-              · **Target** {{ states('input_number.irrigation_sensor1_target_vwc') | int }}%
-              · **Max** {{ states('input_number.irrigation_sensor1_max_vwc') | int }}%
+            title: Probe Parity Check
+            content: |
+              **1. Reset both probes** (Scale=1, Offset=0). Bury two enabled probes side-by-side in moist soil; wait 1 min.
 
-          - type: entities
-            title: Moisture Thresholds — Sensor 1
-            show_header_toggle: false
-            entities:
-              - entity: input_number.irrigation_sensor1_resume_vwc
-              - entity: input_number.irrigation_sensor1_target_vwc
-              - entity: input_number.irrigation_sensor1_max_vwc
+              **2. Compare Raw VWC and Signal V.** Same algorithm and 5 V ADC ref for all — a gap here is hardware (probe, wire, contact), not HA math.
+
+              **3. Swap test:** swap only the **Black (signal) wires** at A0/A1; Bare stays on GND. If the low reading follows the probe, replace/re-seat that probe. If it stays on the same slot, check that pin's wire.
+
+              **4. Align:** use **Calibrate S0 to Match S1** (or the parameterized calibrate script) to match calibrated readings, then move probes to final spots.
+
+          - type: grid
+            title: Align Probes (S0/S1)
+            columns: 2
+            square: false
+            cards:
+              - type: button
+                name: S0 → S1
+                icon: mdi:arrow-right-bold
+                show_name: true
+                show_icon: true
+                tap_action:
+                  action: call-service
+                  service: script.turn_on
+                  service_data:
+                    entity_id: script.irrigation_calibrate_sensor0_to_sensor1
+              - type: button
+                name: S1 → S0
+                icon: mdi:arrow-left-bold
+                show_name: true
+                show_icon: true
+                tap_action:
+                  action: call-service
+                  service: script.turn_on
+                  service_data:
+                    entity_id: script.irrigation_calibrate_sensor1_to_sensor0
+              - type: button
+                name: Reset S0
+                icon: mdi:restore
+                show_name: true
+                show_icon: true
+                tap_action:
+                  action: call-service
+                  service: script.turn_on
+                  service_data:
+                    entity_id: script.irrigation_reset_sensor0_calibration
+              - type: button
+                name: Reset S1
+                icon: mdi:restore
+                show_name: true
+                show_icon: true
+                tap_action:
+                  action: call-service
+                  service: script.turn_on
+                  service_data:
+                    entity_id: script.irrigation_reset_sensor1_calibration
 
       - type: grid
         title: Control
         cards:
-
           - type: entities
             title: Status
-            show_header_toggle: false
             entities:
               - entity: input_select.irrigation_control_mode
-                name: Control Mode
-              - entity: sensor.irrigation_operational_status
-                name: Operational Status
+              - entity: sensor.irrigation_auto_block_reason
+                name: Auto Status
               - entity: binary_sensor.irrigation_controller_online
-                name: Controller
-              - entity: sensor.irrigation_controller_irrigation_valve_state
-                name: Valve State
-              - entity: sensor.irrigation_controller_irrigation_error_code
-                name: Error Code
-              - entity: sensor.irrigation_valve_phase
-                name: Phase
-              - entity: counter.irrigation_cycles_this_event
-                name: Cycles This Event
-              - entity: sensor.irrigation_controller_irrigation_valve_runtime_today
-                name: Runtime Today
-              - entity: sensor.irrigation_controller_irrigation_valve_runtime_hour
-                name: Runtime This Hour
-              - entity: sensor.irrigation_controller_irrigation_valve_pulse_count
-                name: Pulse Count
-              - entity: sensor.irrigation_last_cycle_gallons
-                name: Last Cycle Gallons
-              - entity: input_boolean.irrigation_leak_fault
-                name: Leak Fault
-              - entity: input_boolean.irrigation_sensor_fault
-                name: Sensor Fault
-
-          - type: vertical-stack
-            title: Manual Controls
-            cards:
-              - type: button
-                name: Start Irrigation Cycle
-                icon: mdi:water
-                tap_action:
-                  action: call-service
-                  service: script.turn_on
-                  service_data:
-                    entity_id: script.irrigation_begin_cycle
-              - type: button
-                name: Force Close
-                icon: mdi:valve-closed
-                tap_action:
-                  action: call-service
-                  service: script.turn_on
-                  service_data:
-                    entity_id: script.irrigation_abort_and_close
-              - type: button
-                name: Clear Valve Fault
-                icon: mdi:alert-remove-outline
-                tap_action:
-                  action: call-service
-                  service: mqtt.publish
-                  data:
-                    topic: irrigation/valve/command
-                    payload: '{"action":"clear_fault"}'
-              - type: button
-                name: Clear Leak Fault
-                icon: mdi:alert-remove-outline
-                tap_action:
-                  action: call-service
-                  service: input_boolean.turn_off
-                  data:
-                    entity_id: input_boolean.irrigation_leak_fault
-              - type: button
-                name: Clear Sensor Fault
-                icon: mdi:alert-remove-outline
-                tap_action:
-                  action: call-service
-                  service: input_boolean.turn_off
-                  data:
-                    entity_id: input_boolean.irrigation_sensor_fault
-
-          - type: markdown
-            content: >
-              **Duration** {{ states('input_number.irrigation_duration_min') | int }} min
-              · **Settle** {{ states('input_number.irrigation_settle_min') | int }} min
-              · **Max cycles** {{ states('input_number.irrigation_max_cycles_per_event') | int }}
+              - entity: sensor.irrigation_valve_state
+              - entity: input_text.irrigation_cycle_time_remaining
+                name: Time Remaining
+              - entity: binary_sensor.irrigation_valve
+                name: Valve Open
+              - entity: sensor.irrigation_actual_pulse_s
+                name: Last Pulse (s)
+              - entity: input_number.irrigation_last_settle_s0_vwc
+                name: Settle End S0
+              - entity: input_number.irrigation_last_settle_s1_vwc
+                name: Settle End S1
+              - entity: input_number.irrigation_last_settle_s2_vwc
+                name: Settle End S2
+              - entity: input_number.irrigation_last_settle_s3_vwc
+                name: Settle End S3
+              - entity: input_number.irrigation_last_settle_s4_vwc
+                name: Settle End S4
+              - entity: input_number.irrigation_last_settle_s5_vwc
+                name: Settle End S5
+              - entity: input_datetime.irrigation_last_settle_at
+                name: Settle Recorded
+              - entity: sensor.irrigation_error_code
 
           - type: entities
-            title: Irrigation Timing
-            show_header_toggle: false
+            title: Firmware
             entities:
-              - entity: input_number.irrigation_duration_min
               - entity: input_number.irrigation_settle_min
-              - entity: input_number.irrigation_max_cycles_per_event
-
-          - type: markdown
-            content: >
-              **Day** {{ states('input_number.irrigation_max_runtime_day_min') | int }} min
-              · **Hour** {{ states('input_number.irrigation_max_runtime_hour_min') | int }} min
-              · **Single run** {{ states('input_number.irrigation_max_single_run_min') | int }} min
-              · **Failsafe** {{ states('input_number.irrigation_failsafe_disconnect_min') | int }} min
-
-          - type: entities
-            title: Runtime Limits
-            show_header_toggle: false
-            entities:
-              - entity: input_number.irrigation_max_runtime_day_min
-              - entity: input_number.irrigation_max_runtime_hour_min
-              - entity: input_number.irrigation_max_single_run_min
+              - entity: input_number.irrigation_max_pulse_min
+              - entity: input_number.irrigation_min_pulse_min
               - entity: input_number.irrigation_failsafe_disconnect_min
 
-          - type: markdown
-            content: >
-              **Flow** {{ states('input_number.irrigation_system_gph') }} GPH
-              ({{ states('sensor.irrigation_gallons_per_minute') }} gal/min)
-              · **Emitters** {{ states('input_number.irrigation_emitter_count') | int }}
-
-          - type: entities
-            title: System Flow
-            show_header_toggle: false
-            entities:
-              - entity: input_number.irrigation_system_gph
-              - entity: input_number.irrigation_emitter_count
-              - entity: sensor.irrigation_gallons_per_minute
-
-          - type: markdown
-            content: >
-              **Min Δ** {{ states('input_number.irrigation_min_vwc_delta') }}% VWC
-              · **Check after** {{ states('input_number.irrigation_leak_check_delay_min') | int }} min
-              · **Min volume** {{ states('input_number.irrigation_min_gallons_for_leak_check') }} gal
-
-          - type: entities
-            title: Leak Detection
-            show_header_toggle: false
-            entities:
-              - entity: input_number.irrigation_min_vwc_delta
-              - entity: input_number.irrigation_leak_check_delay_min
-              - entity: input_number.irrigation_min_gallons_for_leak_check
-
-          - type: markdown
-            content: >
-              **Control:** `manual` for testing, `auto` for HA drip control, `firmware_fallback` for on-device trigger only.
-
-              MQTT entities use the `irrigation_controller_irrigation_*` IDs from your Irrigation Controller device.
-              They show **unavailable** until the UNO is online after reflash.
-
-              **AI data:** Each cycle fires `irrigation_cycle_complete` events (Logbook + Recorder).
-
-              Start in **manual** mode, run one cycle, verify events and leak settings before enabling **auto**.
-
-  - title: Data Analysis
-    path: irrigation-analysis
-    icon: mdi:chart-scatter-plot
-    type: sections
-    sections:
-
-      - type: grid
-        title: Workflow
-        cards:
+          - type: grid
+            title: Manual Controls
+            columns: 2
+            square: false
+            cards:
+              - type: button
+                name: Pulse
+                icon: mdi:water
+                show_name: true
+                show_icon: true
+                tap_action:
+                  action: call-service
+                  service: script.turn_on
+                  service_data:
+                    entity_id: script.irrigation_request_pulse
+              - type: button
+                name: Close
+                icon: mdi:stop-circle
+                show_name: true
+                show_icon: true
+                tap_action:
+                  action: call-service
+                  service: script.turn_on
+                  service_data:
+                    entity_id: script.irrigation_force_close
+              - type: button
+                name: Clear Fault
+                icon: mdi:alert-remove-outline
+                show_name: true
+                show_icon: true
+                tap_action:
+                  action: call-service
+                  service: script.turn_on
+                  service_data:
+                    entity_id: script.irrigation_clear_fault
+              - type: button
+                name: Sync
+                icon: mdi:sync
+                show_name: true
+                show_icon: true
+                tap_action:
+                  action: call-service
+                  service: script.turn_on
+                  service_data:
+                    entity_id: script.irrigation_sync_firmware
 
           - type: markdown
-            content: >
-              **Export → analyze → review.** Run `scripts/export_irrigation_cycles.py` and
-              `scripts/analyze_irrigation.py` locally (see `docs/data_extraction.md`).
-              Use `--apply-to-ha` to push recommendations here. Apply slider changes manually
-              on the Irrigation tab after verifying in **manual** mode.
-
-          - type: entities
-            title: Analysis Runs
-            show_header_toggle: false
-            entities:
-              - entity: input_datetime.irrigation_analysis_last_export
-                name: Last Export
-              - entity: input_datetime.irrigation_analysis_last_run
-                name: Last Analysis
-
-          - type: markdown
-            content: >
-              **Summary:** {{ states('input_text.irrigation_analysis_summary') }}
-
-          - type: entities
-            title: Recommended Settings (suggestions only)
-            show_header_toggle: false
-            entities:
-              - entity: input_number.irrigation_analysis_rec_duration_min
-                name: Suggested On-Time
-              - entity: input_number.irrigation_analysis_rec_settle_min
-                name: Suggested Settle
-              - entity: input_number.irrigation_analysis_rec_leak_check_delay_min
-                name: Suggested Leak Check Delay
-              - entity: input_number.irrigation_analysis_rec_min_vwc_delta
-                name: Suggested Min VWC Delta
-
-          - type: history-graph
-            title: Moisture Trend (7 d)
-            hours_to_show: 168
-            entities:
-              - entity: sensor.irrigation_sensor_0_vwc_resolved
-                name: Sensor 0 (far)
-              - entity: sensor.irrigation_sensor_1_vwc_resolved
-                name: Sensor 1 (near)
-
-          - type: markdown
-            content: >
-              **Sensor roles:** S0 is far from emitters (slow, target driver). S1 is near
-              emitters (fast, saturation risk). Leak detection uses `max(delta_s0, delta_s1)` —
-              tune delay and min delta from data, do not disable leak checks.
+            content: |
+              **Auto:** pulse when any **enabled** sensor &lt; min and valve is idle. **Pulse size:** scales with moisture deficit across enabled sensors. **Blocks:** no enabled sensors, stale enabled sensor, any enabled ≥ max, all enabled ≥ min, valve busy, controller offline.

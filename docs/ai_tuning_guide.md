@@ -2,7 +2,9 @@
 
 This guide is for AI agents (or humans) analyzing drip irrigation performance and recommending parameter changes.
 
-For drip algorithm context (control modes, leak logic, automations), see [ha_drip_control.md](ha_drip_control.md).
+**System purpose:** [system_spec.md](system_spec.md) — moisture window control, leak alarms, tuning pipeline.
+
+For drip algorithm detail see [ha_drip_control.md](ha_drip_control.md). For export mechanics see [data_extraction.md](data_extraction.md).
 
 ## System context
 
@@ -11,6 +13,12 @@ For drip algorithm context (control modes, leak logic, automations), see [ha_dri
 - **Firmware:** Actuator + MQTT-configurable safety backstops; auto-trigger off by default
 - **Sensors:** 2 × Vegetronix VH400 (VWC %)
 - **Placement:** Sensor 0 is **far** from emitters (slow, drives target); Sensor 1 is **near** (fast, saturation risk)
+
+## Tuning pipeline (summary)
+
+Part of the north-star loop in [system_spec.md](system_spec.md): cycle completes →
+`irrigation_cycle_complete` event → export CSV → analyze → recommendations on
+dashboard → operator applies sliders manually.
 
 ## Data export and analysis pipeline
 

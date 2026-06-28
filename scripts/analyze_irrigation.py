@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 
 SAFE_BOUNDS = {
-    "duration_min": (3, 30),
+    "duration_min": (3, 360),
     "settle_min": (10, 45),
     "leak_check_delay_min": (15, 45),
     "min_vwc_delta": (0.3, 3.0),

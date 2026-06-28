@@ -1,192 +1,121 @@
 # MQTT Topic Schema
 
 **Hardware:** Arduino UNO R4 WiFi  
-**Broker:** Mosquitto (hosted on Home Assistant server)  
-**Protocol:** MQTT 3.1.1
+**Broker:** Mosquitto on Home Assistant
 
 ---
 
 ## Architecture
 
-One solenoid **valve** is shared across all moisture measurement **sensors**.
-
-**Production control:** Home Assistant runs the drip algorithm when
-`irrigation_control_mode` is `auto`. The firmware acts as sensor/actuator with
-MQTT-configurable safety backstops. On-device auto-trigger is off by default;
-enable only via `firmware_fallback` mode.
+Home Assistant reads moisture telemetry and sends pulse commands. Firmware executes pulse → settle → idle.
 
 ```
-Sensor 0 (A0) ──┐
-Sensor 1 (A1) ──┤── telemetry ──► Home Assistant (drip logic)
-...             ┘                      │
-                                       │ MQTT pulse / close / configure
-                                       ▼
-                                  Valve (Pin 5)
+Sensor 0..5 (A0–A5) ── telemetry ──► Home Assistant
+                                      │
+                                      │ pulse / configure / close
+                                      ▼
+                                 Valve (Pin 5)
 ```
-
-See [docs/ha_drip_control.md](../docs/ha_drip_control.md) for the HA state machine.
 
 ---
 
-## Topics
-
-### Published by UNO R4 WiFi
-
-#### Sensor Telemetry
-
-**Topic:** `irrigation/sensor/<id>/telemetry`  
-**Retained:** No  
-**QoS:** 0  
-**Interval:** Every `TELEMETRY_INTERVAL_MS` (default 10 s; compile-time constant)
-
-| Field    | Type   | Unit | Description                        |
-|----------|--------|------|------------------------------------|
-| `sensor` | uint8  | —    | Sensor index (0-based)             |
-| `vwc`    | float  | %    | Volumetric water content           |
-| `ts`     | uint32 | s    | Uptime timestamp (millis/1000)     |
-
-```json
-{"sensor":0,"vwc":18.3,"ts":1024}
-```
-
-#### Valve Telemetry
+## Valve telemetry
 
 **Topic:** `irrigation/valve/telemetry`  
-**Retained:** No  
-**QoS:** 0  
-**Interval:** Same as sensor telemetry
+**Interval:** ~10 s
 
-| Field             | Type   | Unit | Description                        |
-|-------------------|--------|------|------------------------------------|
-| `valve_open`      | bool   | —    | Current relay state                |
-| `runtime_today_s` | uint32 | s    | Valve-open seconds today           |
-| `runtime_hour_s`  | uint32 | s    | Valve-open seconds this hour       |
-| `pulse_count`     | uint32 | —    | Total pulses since boot            |
-| `state`           | string | —    | `idle` / `pulsing` / `settling` / `fault` |
-| `error_code`      | string | —    | `none` when healthy; see table below when faulted |
-| `fault_reason`    | string | —    | Human-readable detail; present only when `state=fault` |
-| `ts`              | uint32 | s    | Uptime timestamp                   |
+| Field | Type | Description |
+|-------|------|-------------|
+| `valve_open` | bool | Relay energized |
+| `state` | string | `idle` / `pulsing` / `settling` / `fault` |
+| `actual_pulse_s` | uint32 | Seconds of last completed pulse |
+| `pulse_elapsed_s` | uint32 | Seconds elapsed in current pulse (0 if not pulsing) |
+| `pulse_count` | uint32 | Pulses since boot |
+| `error_code` | string | `none`, `E001` |
+| `fault_reason` | string | Present when `state=fault` |
+| `configured` | bool | Params loaded from HA or flash |
+| `config_source` | string | `none` / `persisted` / `ha` |
+| `ts` | uint32 | Uptime seconds |
 
 **Error codes:**
 
-| Code | Condition |
-|------|-----------|
-| `none` | No fault |
-| `E001` | Pulse exceeded emergency hard limit (7200 s) |
-| `E002` | Hourly runtime budget exhausted (`max_runtime_hour_s`, default 1800 s) |
-| `E003` | Daily runtime budget exhausted (configured `max_runtime_day_s`) |
-| `E004` | Pulse request denied (unexpected state) |
-
-```json
-{"valve_open":false,"runtime_today_s":210,"runtime_hour_s":210,"pulse_count":7,"state":"settling","error_code":"none","ts":2117}
-```
-
-Fault example:
-```json
-{"valve_open":false,"runtime_today_s":620,"runtime_hour_s":620,"pulse_count":21,"state":"fault","error_code":"E002","fault_reason":"hourly runtime limit exceeded","ts":4301}
-```
-
-#### Valve Status (LWT)
-
-**Topic:** `irrigation/valve/status`  
-**Retained:** Yes  
-**QoS:** 1  
-**Values:** `online` | `offline`
-
-Published `online` on connect; broker publishes `offline` via Last Will on disconnect.
+| Code | Meaning |
+|------|---------|
+| `E001` | Hardware stuck-valve limit (86 400 s) |
 
 ---
 
-### Subscribed by UNO R4 WiFi
+## Valve command
 
-#### Valve Command
+**Topic:** `irrigation/valve/command`
 
-**Topic:** `irrigation/valve/command`  
-**Direction:** HA → Device
-
-All payloads are JSON. The `action` field selects the operation.
-
-| Action        | Extra fields                                      | Effect                                   |
-|---------------|---------------------------------------------------|------------------------------------------|
-| `pulse`       | —                                                 | Immediately start a pulse cycle          |
-| `close`       | —                                                 | Force valve closed                       |
-| `clear_fault` | —                                                 | Clear FAULT state                        |
-| `configure`   | See configure fields below | Valve timing + runtime budgets + failsafe |
+| Action | Fields | Effect |
+|--------|--------|--------|
+| `pulse` | `pulse_duration_s` (required) | Start pulse for requested seconds (clamped to max pulse / hardware cap) |
+| `close` | — | Force valve closed → idle |
+| `clear_fault` | — | Clear fault → idle |
+| `configure` | `settle_duration_s`, `max_pulse_duration_s`, `failsafe_disconnect_s` | Persist operational limits |
 
 ```json
-{"action":"pulse"}
-{"action":"configure",
- "pulse_duration_s":600,
- "settle_duration_s":1200,
- "max_pulse_duration_s":1200,
- "max_runtime_day_s":7200,
- "max_runtime_hour_s":1800,
- "failsafe_disconnect_s":1800,
- "auto_trigger_enabled":false}
+{"action":"pulse","pulse_duration_s":1800}
+{"action":"configure","settle_duration_s":1200,"max_pulse_duration_s":3600,"failsafe_disconnect_s":1800}
 ```
 
-| Configure field | Type | Description |
-|-----------------|------|-------------|
-| `pulse_duration_s` | uint | Irrigation cycle length (valve open) |
-| `settle_duration_s` | uint | Gap after cycle before idle |
-| `max_pulse_duration_s` | uint | Max single valve-open duration (HA backstop) |
-| `max_runtime_day_s` | uint | Daily valve-open budget (rolling 24 h) |
-| `max_runtime_hour_s` | uint | Hourly valve-open budget |
-| `failsafe_disconnect_s` | uint | Close valve if MQTT lost this long |
-| `auto_trigger_enabled` | bool | On-device auto-trigger (default false; HA controls) |
-
-Operational limits are pushed from Home Assistant sliders. Firmware emergency ceilings (2 hr pulse, 2 hr/hr, 8 hr/day) cannot be overridden.
-
-**Emergency limits (firmware only, not MQTT-configurable):**
+**Hardware-only limits (not MQTT-configurable):**
 
 | Limit | Value |
 |-------|-------|
-| Emergency max pulse | 7200 s |
-| Emergency max runtime / hour | 7200 s |
-| Emergency max runtime / day | 28 800 s |
+| Stuck-valve absolute max open | 86 400 s |
 | Min settle gap | 60 s |
 
-#### Sensor Config
+---
 
-**Topic:** `irrigation/sensor/<id>/config`  
-**Direction:** HA → Device
+## Sensor telemetry
 
-| Field       | Type  | Unit | Description                     |
-|-------------|-------|------|---------------------------------|
-| `resume_vwc`| float | %    | Dry threshold for firmware_fallback auto-trigger (default 35 %) |
+**Topic:** `irrigation/sensor/<id>/telemetry`
 
 ```json
-{"resume_vwc":35.0}
+{"sensor":0,"vwc":18.3,"voltage":1.42,"ts":1024}
+{"sensor":4,"vwc":22.1,"voltage":1.58,"ts":2048}
 ```
 
----
-
-## Home Assistant entity IDs (MQTT Discovery)
-
-Discovery registers entities under device **Irrigation Controller** using
-short `object_id` values that become the entity ID directly:
-
-| `object_id` (firmware) | Entity ID |
-|------------------------|-----------|
-| `irrigation_sensor_0_vwc` | `sensor.irrigation_sensor_0_vwc` |
-| `irrigation_sensor_1_vwc` | `sensor.irrigation_sensor_1_vwc` |
-| `irrigation_valve_state` | `sensor.irrigation_valve_state` |
-| `irrigation_valve` | `binary_sensor.irrigation_valve` |
-| `irrigation_error_code` | `sensor.irrigation_error_code` |
-| `irrigation_controller_online` | `binary_sensor.irrigation_controller_online` |
-| `irrigation_valve_pulse` | `button.irrigation_valve_pulse` |
-
-After upgrading from an older build, remove stale entities that used the longer
-`irrigation_controller_irrigation_*` prefix.
+| Field | Type | Description |
+|-------|------|-------------|
+| `sensor` | uint8 | Sensor index (0–5) |
+| `vwc` | float | Raw VWC % from firmware VH400 curve |
+| `voltage` | float | Averaged signal voltage at ADC pin (V) |
+| `ts` | uint32 | Uptime seconds |
 
 ---
 
-## Scaling
+## Valve status (LWT)
 
-To add a third (or more) sensor:
+**Topic:** `irrigation/valve/status` — retained `online` / `offline`
 
-1. Increment `SENSOR_COUNT` in `config.h`.
-2. Add `Pin::SENSOR_N` and a `VH400` instance in `main.cpp`.
-3. Re-flash the firmware — Discovery registers `irrigation_sensor_<n>_vwc`.
-4. Extend `homeassistant/packages/irrigation.yaml` (resume_vwc slider, apply
-   automation, sync-on-connect).
+---
+
+## Home Assistant entities
+
+Package defines core entities in `irrigation.yaml` and `irrigation_sensors.yaml`; firmware discovery adds matching IDs:
+
+| Entity | Source |
+|--------|--------|
+| `input_boolean.irrigation_sensor_N_enabled` | Package (HA logical enable) |
+| `input_text.irrigation_sensor_N_label` | Package (optional display name) |
+| `sensor.irrigation_sensor_N_vwc` | HA template (calibrated) |
+| `sensor.irrigation_sensor_N_vwc_raw` | HA template (firmware VWC) |
+| `sensor.irrigation_sensor_N_voltage` | HA template (signal V at ADC) |
+| `sensor.irrigation_valve_state` | Package + discovery |
+| `binary_sensor.irrigation_valve` | Package + discovery |
+| `sensor.irrigation_actual_pulse_s` | Package + discovery |
+| `sensor.irrigation_pulse_elapsed_s` | Discovery |
+| `sensor.irrigation_valve_pulse_count` | Discovery |
+| `sensor.irrigation_error_code` | Package + discovery |
+| `sensor.irrigation_fault_reason` | Discovery |
+| `binary_sensor.irrigation_firmware_configured` | Discovery |
+| `sensor.irrigation_config_source` | Discovery |
+| `binary_sensor.irrigation_controller_online` | Package + discovery |
+| `button.irrigation_valve_close` | Discovery |
+| `button.irrigation_clear_fault` | Discovery |
+
+Pulse is requested by HA scripts (`irrigation_request_pulse`), not a discovery button.

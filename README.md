@@ -5,15 +5,21 @@ Home Assistant integration, and an AI parameter-tuning layer.
 
 ## Documentation
 
-| Doc | Purpose |
-|-----|---------|
-| [docs/theory_of_operation.md](docs/theory_of_operation.md) | Firmware, MQTT, entity IDs |
-| [docs/ha_drip_control.md](docs/ha_drip_control.md) | HA drip algorithm, leak detection |
-| [docs/ai_tuning_guide.md](docs/ai_tuning_guide.md) | AI agent tuning workflow |
-| [docs/data_extraction.md](docs/data_extraction.md) | Export cycles from Home Assistant |
-| [schemas/mqtt_topics.md](schemas/mqtt_topics.md) | MQTT topic reference |
-| [schemas/irrigation_cycle_log.md](schemas/irrigation_cycle_log.md) | Cycle event schema |
-| [homeassistant/SETUP_AFTER_RESTORE.md](homeassistant/SETUP_AFTER_RESTORE.md) | Post-restore HA checklist |
+**Start here:** [docs/system_spec.md](docs/system_spec.md) — what the system is for, moisture windows, alarms, setting tiers.
+
+| Layer | Doc | Purpose |
+|-------|-----|---------|
+| L0 | [docs/system_spec.md](docs/system_spec.md) | North-star specification |
+| L1 | [docs/operator_guide.md](docs/operator_guide.md) | Dashboard, alarms, troubleshooting |
+| L2 | [docs/ha_drip_control.md](docs/ha_drip_control.md) | HA drip algorithm, automations |
+| L2 | [docs/theory_of_operation.md](docs/theory_of_operation.md) | Firmware, MQTT, entity IDs |
+| L3 | [docs/ai_tuning_guide.md](docs/ai_tuning_guide.md) | AI agent tuning workflow |
+| L3 | [docs/data_extraction.md](docs/data_extraction.md) | Export cycles from Home Assistant |
+| — | [docs/feature_inventory.md](docs/feature_inventory.md) | Every entity classified A–F |
+| — | [docs/audit_report.md](docs/audit_report.md) | Doc gaps, phase-2 simplification backlog |
+| — | [schemas/mqtt_topics.md](schemas/mqtt_topics.md) | MQTT topic reference |
+| — | [schemas/irrigation_cycle_log.md](schemas/irrigation_cycle_log.md) | Cycle event schema |
+| — | [homeassistant/SETUP_AFTER_RESTORE.md](homeassistant/SETUP_AFTER_RESTORE.md) | Post-restore HA checklist |
 
 ## Architecture
 
@@ -29,13 +35,14 @@ VH400 Sensors → UNO R4 WiFi → MQTT → Home Assistant (drip control, dashboa
 between sensors inform physical sprinkler/soaker-hose positioning rather than
 which valve to open.
 
+**What it does.** Maintain soil moisture within a programmable window (resume →
+target) using metered valve pulses; alarm if water runs without moisture gain;
+log cycles for offline AI tuning. See [docs/system_spec.md](docs/system_spec.md).
+
 **Control authority.** Home Assistant runs the drip algorithm when
-`irrigation_control_mode` is `auto` (see [docs/ha_drip_control.md](docs/ha_drip_control.md)).
+`irrigation_control_mode` is `auto` ([docs/ha_drip_control.md](docs/ha_drip_control.md)).
 The firmware acts as sensor/actuator with MQTT-configurable safety backstops.
-On-device auto-trigger is **off by default**; enable only via `firmware_fallback`
-mode for legacy operation. HA pushes timing and threshold sliders via MQTT,
-provides monitoring and manual override (`pulse` / `close`), and syncs config
-when the controller reconnects.
+On-device auto-trigger is **off by default**; `firmware_fallback` is emergency-only.
 
 ## Hardware
 
@@ -91,17 +98,18 @@ Quick reference:
 ## Safety Limits
 
 Operational limits are **Home Assistant sliders** pushed via MQTT `configure`.
-Firmware enforces only emergency backstops (stuck valve / runaway protection).
+Firmware enforces budgets (E002/E003) and a hardware stuck-valve cap (E001, 24 h).
 
-| Limit | Default (HA) | Emergency cap (firmware) |
+| Limit | Package default | Notes |
 |---|---|---|
-| Single run | 20 min | 120 min |
-| Per hour | 30 min | 120 min |
-| Per day | 120 min | 480 min |
-| MQTT failsafe close | 30 min | 120 min |
+| Duration (pulse) | 60 min | Per-cycle run length |
+| Max single run | 360 min | Firmware cap per pulse; set ≥ duration |
+| Per hour | 60 min | **Cumulative** valve-open time in rolling hour |
+| Per day | 720 min | Cumulative daily budget |
+| MQTT failsafe close | 30 min | Close valve if MQTT lost |
 
-See [docs/ai_tuning_guide.md](docs/ai_tuning_guide.md) for AI-assisted tuning.
-See [schemas/irrigation_cycle_log.md](schemas/irrigation_cycle_log.md) for cycle event schema.
+See [docs/system_spec.md](docs/system_spec.md) for alarms. See
+[docs/ai_tuning_guide.md](docs/ai_tuning_guide.md) for tuning.
 
 ## Home Assistant Integration
 
@@ -219,6 +227,10 @@ scripts/
   export_irrigation_cycles.py  export cycle events + optional VWC history
   analyze_irrigation.py   metrics, leak simulation, HA dashboard push
 docs/
+  system_spec.md          North-star: purpose, moisture windows, alarms
+  operator_guide.md       Dashboard map, troubleshooting
+  feature_inventory.md    Entity/script classification (A–F)
+  audit_report.md         Doc gaps, phase-2 simplification backlog
   hardware.md             Bill of materials, pin connections, wiring diagrams
   vh400_calibration.md    ADC reference, piecewise VWC formulas
   theory_of_operation.md  Firmware, MQTT, entity IDs

@@ -1,0 +1,581 @@
+# Sensor slots 0–5 — deploy alongside irrigation.yaml in config/packages/
+# Enable/disable per slot in HA; firmware publishes all six A0–A5 pins.
+
+input_boolean:
+  irrigation_sensor_0_enabled:
+    name: Sensor 0 Enabled
+    initial: true
+    icon: mdi:toggle-switch
+  irrigation_sensor_1_enabled:
+    name: Sensor 1 Enabled
+    initial: true
+    icon: mdi:toggle-switch
+  irrigation_sensor_2_enabled:
+    name: Sensor 2 Enabled
+    initial: false
+    icon: mdi:toggle-switch
+  irrigation_sensor_3_enabled:
+    name: Sensor 3 Enabled
+    initial: false
+    icon: mdi:toggle-switch
+  irrigation_sensor_4_enabled:
+    name: Sensor 4 Enabled
+    initial: false
+    icon: mdi:toggle-switch
+  irrigation_sensor_5_enabled:
+    name: Sensor 5 Enabled
+    initial: false
+    icon: mdi:toggle-switch
+
+input_text:
+  irrigation_sensor_0_label:
+    name: Sensor 0 Label
+    initial: Sensor 0
+    max: 32
+  irrigation_sensor_1_label:
+    name: Sensor 1 Label
+    initial: Sensor 1
+    max: 32
+  irrigation_sensor_2_label:
+    name: Sensor 2 Label
+    initial: Sensor 2
+    max: 32
+  irrigation_sensor_3_label:
+    name: Sensor 3 Label
+    initial: Sensor 3
+    max: 32
+  irrigation_sensor_4_label:
+    name: Sensor 4 Label
+    initial: Sensor 4
+    max: 32
+  irrigation_sensor_5_label:
+    name: Sensor 5 Label
+    initial: Sensor 5
+    max: 32
+
+input_number:
+  irrigation_sensor0_min_vwc:
+    name: Sensor 0 Min VWC
+    min: 1
+    max: 55
+    step: 1
+    initial: 35
+    unit_of_measurement: "%"
+  irrigation_sensor0_max_vwc:
+    name: Sensor 0 Max VWC
+    min: 10
+    max: 60
+    step: 1
+    initial: 50
+    unit_of_measurement: "%"
+  irrigation_sensor0_target_vwc:
+    name: Sensor 0 Target VWC
+    min: 10
+    max: 55
+    step: 1
+    initial: 44
+    unit_of_measurement: "%"
+  irrigation_sensor0_vwc_scale:
+    name: Sensor 0 VWC Scale
+    min: 0.5
+    max: 2.0
+    step: 0.05
+    initial: 1.0
+  irrigation_sensor0_vwc_offset:
+    name: Sensor 0 VWC Offset
+    min: -30
+    max: 30
+    step: 0.5
+    initial: 0
+    unit_of_measurement: "%"
+  irrigation_sensor1_min_vwc:
+    name: Sensor 1 Min VWC
+    min: 1
+    max: 55
+    step: 1
+    initial: 35
+    unit_of_measurement: "%"
+  irrigation_sensor1_max_vwc:
+    name: Sensor 1 Max VWC
+    min: 10
+    max: 60
+    step: 1
+    initial: 50
+    unit_of_measurement: "%"
+  irrigation_sensor1_target_vwc:
+    name: Sensor 1 Target VWC
+    min: 10
+    max: 55
+    step: 1
+    initial: 44
+    unit_of_measurement: "%"
+  irrigation_sensor1_vwc_scale:
+    name: Sensor 1 VWC Scale
+    min: 0.5
+    max: 2.0
+    step: 0.05
+    initial: 1.0
+  irrigation_sensor1_vwc_offset:
+    name: Sensor 1 VWC Offset
+    min: -30
+    max: 30
+    step: 0.5
+    initial: 0
+    unit_of_measurement: "%"
+  irrigation_sensor2_min_vwc:
+    name: Sensor 2 Min VWC
+    min: 1
+    max: 55
+    step: 1
+    initial: 35
+    unit_of_measurement: "%"
+  irrigation_sensor2_max_vwc:
+    name: Sensor 2 Max VWC
+    min: 10
+    max: 60
+    step: 1
+    initial: 50
+    unit_of_measurement: "%"
+  irrigation_sensor2_target_vwc:
+    name: Sensor 2 Target VWC
+    min: 10
+    max: 55
+    step: 1
+    initial: 44
+    unit_of_measurement: "%"
+  irrigation_sensor2_vwc_scale:
+    name: Sensor 2 VWC Scale
+    min: 0.5
+    max: 2.0
+    step: 0.05
+    initial: 1.0
+  irrigation_sensor2_vwc_offset:
+    name: Sensor 2 VWC Offset
+    min: -30
+    max: 30
+    step: 0.5
+    initial: 0
+    unit_of_measurement: "%"
+  irrigation_sensor3_min_vwc:
+    name: Sensor 3 Min VWC
+    min: 1
+    max: 55
+    step: 1
+    initial: 35
+    unit_of_measurement: "%"
+  irrigation_sensor3_max_vwc:
+    name: Sensor 3 Max VWC
+    min: 10
+    max: 60
+    step: 1
+    initial: 50
+    unit_of_measurement: "%"
+  irrigation_sensor3_target_vwc:
+    name: Sensor 3 Target VWC
+    min: 10
+    max: 55
+    step: 1
+    initial: 44
+    unit_of_measurement: "%"
+  irrigation_sensor3_vwc_scale:
+    name: Sensor 3 VWC Scale
+    min: 0.5
+    max: 2.0
+    step: 0.05
+    initial: 1.0
+  irrigation_sensor3_vwc_offset:
+    name: Sensor 3 VWC Offset
+    min: -30
+    max: 30
+    step: 0.5
+    initial: 0
+    unit_of_measurement: "%"
+  irrigation_sensor4_min_vwc:
+    name: Sensor 4 Min VWC
+    min: 1
+    max: 55
+    step: 1
+    initial: 35
+    unit_of_measurement: "%"
+  irrigation_sensor4_max_vwc:
+    name: Sensor 4 Max VWC
+    min: 10
+    max: 60
+    step: 1
+    initial: 50
+    unit_of_measurement: "%"
+  irrigation_sensor4_target_vwc:
+    name: Sensor 4 Target VWC
+    min: 10
+    max: 55
+    step: 1
+    initial: 44
+    unit_of_measurement: "%"
+  irrigation_sensor4_vwc_scale:
+    name: Sensor 4 VWC Scale
+    min: 0.5
+    max: 2.0
+    step: 0.05
+    initial: 1.0
+  irrigation_sensor4_vwc_offset:
+    name: Sensor 4 VWC Offset
+    min: -30
+    max: 30
+    step: 0.5
+    initial: 0
+    unit_of_measurement: "%"
+  irrigation_sensor5_min_vwc:
+    name: Sensor 5 Min VWC
+    min: 1
+    max: 55
+    step: 1
+    initial: 35
+    unit_of_measurement: "%"
+  irrigation_sensor5_max_vwc:
+    name: Sensor 5 Max VWC
+    min: 10
+    max: 60
+    step: 1
+    initial: 50
+    unit_of_measurement: "%"
+  irrigation_sensor5_target_vwc:
+    name: Sensor 5 Target VWC
+    min: 10
+    max: 55
+    step: 1
+    initial: 44
+    unit_of_measurement: "%"
+  irrigation_sensor5_vwc_scale:
+    name: Sensor 5 VWC Scale
+    min: 0.5
+    max: 2.0
+    step: 0.05
+    initial: 1.0
+  irrigation_sensor5_vwc_offset:
+    name: Sensor 5 VWC Offset
+    min: -30
+    max: 30
+    step: 0.5
+    initial: 0
+    unit_of_measurement: "%"
+  irrigation_pulse_start_s0_vwc:
+    name: Irrigation Pulse Start S0 VWC
+    min: 0
+    max: 100
+    step: 0.1
+    initial: 0
+    unit_of_measurement: "%"
+    mode: box
+  irrigation_pulse_start_s1_vwc:
+    name: Irrigation Pulse Start S1 VWC
+    min: 0
+    max: 100
+    step: 0.1
+    initial: 0
+    unit_of_measurement: "%"
+    mode: box
+  irrigation_pulse_start_s2_vwc:
+    name: Irrigation Pulse Start S2 VWC
+    min: 0
+    max: 100
+    step: 0.1
+    initial: 0
+    unit_of_measurement: "%"
+    mode: box
+  irrigation_pulse_start_s3_vwc:
+    name: Irrigation Pulse Start S3 VWC
+    min: 0
+    max: 100
+    step: 0.1
+    initial: 0
+    unit_of_measurement: "%"
+    mode: box
+  irrigation_pulse_start_s4_vwc:
+    name: Irrigation Pulse Start S4 VWC
+    min: 0
+    max: 100
+    step: 0.1
+    initial: 0
+    unit_of_measurement: "%"
+    mode: box
+  irrigation_pulse_start_s5_vwc:
+    name: Irrigation Pulse Start S5 VWC
+    min: 0
+    max: 100
+    step: 0.1
+    initial: 0
+    unit_of_measurement: "%"
+    mode: box
+  irrigation_last_settle_s0_vwc:
+    name: Last Settle S0 VWC
+    min: 0
+    max: 100
+    step: 0.1
+    initial: 0
+    unit_of_measurement: "%"
+    mode: box
+  irrigation_last_settle_s1_vwc:
+    name: Last Settle S1 VWC
+    min: 0
+    max: 100
+    step: 0.1
+    initial: 0
+    unit_of_measurement: "%"
+    mode: box
+  irrigation_last_settle_s2_vwc:
+    name: Last Settle S2 VWC
+    min: 0
+    max: 100
+    step: 0.1
+    initial: 0
+    unit_of_measurement: "%"
+    mode: box
+  irrigation_last_settle_s3_vwc:
+    name: Last Settle S3 VWC
+    min: 0
+    max: 100
+    step: 0.1
+    initial: 0
+    unit_of_measurement: "%"
+    mode: box
+  irrigation_last_settle_s4_vwc:
+    name: Last Settle S4 VWC
+    min: 0
+    max: 100
+    step: 0.1
+    initial: 0
+    unit_of_measurement: "%"
+    mode: box
+  irrigation_last_settle_s5_vwc:
+    name: Last Settle S5 VWC
+    min: 0
+    max: 100
+    step: 0.1
+    initial: 0
+    unit_of_measurement: "%"
+    mode: box
+
+template:
+  - trigger:
+      - platform: mqtt
+        topic: irrigation/sensor/0/telemetry
+      - platform: state
+        entity_id:
+          - input_number.irrigation_sensor0_vwc_scale
+          - input_number.irrigation_sensor0_vwc_offset
+    sensor:
+      - name: Irrigation Sensor 0 VWC Raw
+        unique_id: irrigation_sensor_0_vwc_raw
+        unit_of_measurement: "%"
+        icon: mdi:water-opacity
+        state: "{{ trigger.payload_json.vwc | default(0) | float(0) if trigger.platform == 'mqtt' else states('sensor.irrigation_sensor_0_vwc_raw') | float(0) }}"
+      - name: Irrigation Sensor 0 Voltage
+        unique_id: irrigation_sensor_0_voltage
+        unit_of_measurement: V
+        device_class: voltage
+        icon: mdi:flash
+        state: "{{ trigger.payload_json.voltage | default(0) | float(0) if trigger.platform == 'mqtt' else states('sensor.irrigation_sensor_0_voltage') | float(0) }}"
+      - name: Irrigation Sensor 0 VWC
+        unique_id: irrigation_sensor_0_vwc
+        unit_of_measurement: "%"
+        icon: mdi:water-percent
+        state: |
+          {% if trigger.platform == 'mqtt' %}
+            {% set raw = trigger.payload_json.vwc | default(0) | float %}
+          {% else %}
+            {% set raw = states('sensor.irrigation_sensor_0_vwc_raw') | float(0) %}
+          {% endif %}
+          {% set scale = states('input_number.irrigation_sensor0_vwc_scale') | float(1) %}
+          {% set offset = states('input_number.irrigation_sensor0_vwc_offset') | float(0) %}
+          {% set v = raw * scale + offset %}
+          {{ [0, [100, v] | min] | max | round(1) }}
+
+  - trigger:
+      - platform: mqtt
+        topic: irrigation/sensor/1/telemetry
+      - platform: state
+        entity_id:
+          - input_number.irrigation_sensor1_vwc_scale
+          - input_number.irrigation_sensor1_vwc_offset
+    sensor:
+      - name: Irrigation Sensor 1 VWC Raw
+        unique_id: irrigation_sensor_1_vwc_raw
+        unit_of_measurement: "%"
+        icon: mdi:water-opacity
+        state: "{{ trigger.payload_json.vwc | default(0) | float(0) if trigger.platform == 'mqtt' else states('sensor.irrigation_sensor_1_vwc_raw') | float(0) }}"
+      - name: Irrigation Sensor 1 Voltage
+        unique_id: irrigation_sensor_1_voltage
+        unit_of_measurement: V
+        device_class: voltage
+        icon: mdi:flash
+        state: "{{ trigger.payload_json.voltage | default(0) | float(0) if trigger.platform == 'mqtt' else states('sensor.irrigation_sensor_1_voltage') | float(0) }}"
+      - name: Irrigation Sensor 1 VWC
+        unique_id: irrigation_sensor_1_vwc
+        unit_of_measurement: "%"
+        icon: mdi:water-percent
+        state: |
+          {% if trigger.platform == 'mqtt' %}
+            {% set raw = trigger.payload_json.vwc | default(0) | float %}
+          {% else %}
+            {% set raw = states('sensor.irrigation_sensor_1_vwc_raw') | float(0) %}
+          {% endif %}
+          {% set scale = states('input_number.irrigation_sensor1_vwc_scale') | float(1) %}
+          {% set offset = states('input_number.irrigation_sensor1_vwc_offset') | float(0) %}
+          {% set v = raw * scale + offset %}
+          {{ [0, [100, v] | min] | max | round(1) }}
+
+  - trigger:
+      - platform: mqtt
+        topic: irrigation/sensor/2/telemetry
+      - platform: state
+        entity_id:
+          - input_number.irrigation_sensor2_vwc_scale
+          - input_number.irrigation_sensor2_vwc_offset
+    sensor:
+      - name: Irrigation Sensor 2 VWC Raw
+        unique_id: irrigation_sensor_2_vwc_raw
+        unit_of_measurement: "%"
+        icon: mdi:water-opacity
+        state: "{{ trigger.payload_json.vwc | default(0) | float(0) if trigger.platform == 'mqtt' else states('sensor.irrigation_sensor_2_vwc_raw') | float(0) }}"
+      - name: Irrigation Sensor 2 Voltage
+        unique_id: irrigation_sensor_2_voltage
+        unit_of_measurement: V
+        device_class: voltage
+        icon: mdi:flash
+        state: "{{ trigger.payload_json.voltage | default(0) | float(0) if trigger.platform == 'mqtt' else states('sensor.irrigation_sensor_2_voltage') | float(0) }}"
+      - name: Irrigation Sensor 2 VWC
+        unique_id: irrigation_sensor_2_vwc
+        unit_of_measurement: "%"
+        icon: mdi:water-percent
+        state: |
+          {% if trigger.platform == 'mqtt' %}
+            {% set raw = trigger.payload_json.vwc | default(0) | float %}
+          {% else %}
+            {% set raw = states('sensor.irrigation_sensor_2_vwc_raw') | float(0) %}
+          {% endif %}
+          {% set scale = states('input_number.irrigation_sensor2_vwc_scale') | float(1) %}
+          {% set offset = states('input_number.irrigation_sensor2_vwc_offset') | float(0) %}
+          {% set v = raw * scale + offset %}
+          {{ [0, [100, v] | min] | max | round(1) }}
+
+  - trigger:
+      - platform: mqtt
+        topic: irrigation/sensor/3/telemetry
+      - platform: state
+        entity_id:
+          - input_number.irrigation_sensor3_vwc_scale
+          - input_number.irrigation_sensor3_vwc_offset
+    sensor:
+      - name: Irrigation Sensor 3 VWC Raw
+        unique_id: irrigation_sensor_3_vwc_raw
+        unit_of_measurement: "%"
+        icon: mdi:water-opacity
+        state: "{{ trigger.payload_json.vwc | default(0) | float(0) if trigger.platform == 'mqtt' else states('sensor.irrigation_sensor_3_vwc_raw') | float(0) }}"
+      - name: Irrigation Sensor 3 Voltage
+        unique_id: irrigation_sensor_3_voltage
+        unit_of_measurement: V
+        device_class: voltage
+        icon: mdi:flash
+        state: "{{ trigger.payload_json.voltage | default(0) | float(0) if trigger.platform == 'mqtt' else states('sensor.irrigation_sensor_3_voltage') | float(0) }}"
+      - name: Irrigation Sensor 3 VWC
+        unique_id: irrigation_sensor_3_vwc
+        unit_of_measurement: "%"
+        icon: mdi:water-percent
+        state: |
+          {% if trigger.platform == 'mqtt' %}
+            {% set raw = trigger.payload_json.vwc | default(0) | float %}
+          {% else %}
+            {% set raw = states('sensor.irrigation_sensor_3_vwc_raw') | float(0) %}
+          {% endif %}
+          {% set scale = states('input_number.irrigation_sensor3_vwc_scale') | float(1) %}
+          {% set offset = states('input_number.irrigation_sensor3_vwc_offset') | float(0) %}
+          {% set v = raw * scale + offset %}
+          {{ [0, [100, v] | min] | max | round(1) }}
+
+  - trigger:
+      - platform: mqtt
+        topic: irrigation/sensor/4/telemetry
+      - platform: state
+        entity_id:
+          - input_number.irrigation_sensor4_vwc_scale
+          - input_number.irrigation_sensor4_vwc_offset
+    sensor:
+      - name: Irrigation Sensor 4 VWC Raw
+        unique_id: irrigation_sensor_4_vwc_raw
+        unit_of_measurement: "%"
+        icon: mdi:water-opacity
+        state: "{{ trigger.payload_json.vwc | default(0) | float(0) if trigger.platform == 'mqtt' else states('sensor.irrigation_sensor_4_vwc_raw') | float(0) }}"
+      - name: Irrigation Sensor 4 Voltage
+        unique_id: irrigation_sensor_4_voltage
+        unit_of_measurement: V
+        device_class: voltage
+        icon: mdi:flash
+        state: "{{ trigger.payload_json.voltage | default(0) | float(0) if trigger.platform == 'mqtt' else states('sensor.irrigation_sensor_4_voltage') | float(0) }}"
+      - name: Irrigation Sensor 4 VWC
+        unique_id: irrigation_sensor_4_vwc
+        unit_of_measurement: "%"
+        icon: mdi:water-percent
+        state: |
+          {% if trigger.platform == 'mqtt' %}
+            {% set raw = trigger.payload_json.vwc | default(0) | float %}
+          {% else %}
+            {% set raw = states('sensor.irrigation_sensor_4_vwc_raw') | float(0) %}
+          {% endif %}
+          {% set scale = states('input_number.irrigation_sensor4_vwc_scale') | float(1) %}
+          {% set offset = states('input_number.irrigation_sensor4_vwc_offset') | float(0) %}
+          {% set v = raw * scale + offset %}
+          {{ [0, [100, v] | min] | max | round(1) }}
+
+  - trigger:
+      - platform: mqtt
+        topic: irrigation/sensor/5/telemetry
+      - platform: state
+        entity_id:
+          - input_number.irrigation_sensor5_vwc_scale
+          - input_number.irrigation_sensor5_vwc_offset
+    sensor:
+      - name: Irrigation Sensor 5 VWC Raw
+        unique_id: irrigation_sensor_5_vwc_raw
+        unit_of_measurement: "%"
+        icon: mdi:water-opacity
+        state: "{{ trigger.payload_json.vwc | default(0) | float(0) if trigger.platform == 'mqtt' else states('sensor.irrigation_sensor_5_vwc_raw') | float(0) }}"
+      - name: Irrigation Sensor 5 Voltage
+        unique_id: irrigation_sensor_5_voltage
+        unit_of_measurement: V
+        device_class: voltage
+        icon: mdi:flash
+        state: "{{ trigger.payload_json.voltage | default(0) | float(0) if trigger.platform == 'mqtt' else states('sensor.irrigation_sensor_5_voltage') | float(0) }}"
+      - name: Irrigation Sensor 5 VWC
+        unique_id: irrigation_sensor_5_vwc
+        unit_of_measurement: "%"
+        icon: mdi:water-percent
+        state: |
+          {% if trigger.platform == 'mqtt' %}
+            {% set raw = trigger.payload_json.vwc | default(0) | float %}
+          {% else %}
+            {% set raw = states('sensor.irrigation_sensor_5_vwc_raw') | float(0) %}
+          {% endif %}
+          {% set scale = states('input_number.irrigation_sensor5_vwc_scale') | float(1) %}
+          {% set offset = states('input_number.irrigation_sensor5_vwc_offset') | float(0) %}
+          {% set v = raw * scale + offset %}
+          {{ [0, [100, v] | min] | max | round(1) }}
+
+  - binary_sensor:
+      - name: Irrigation Sensor 0 Fresh
+        unique_id: irrigation_sensor_0_fresh
+        state: "{{ states('sensor.irrigation_sensor_0_vwc') not in ['unknown', 'unavailable', 'none', ''] and (now() - states.sensor.irrigation_sensor_0_vwc.last_updated).total_seconds() < 90 }}"
+      - name: Irrigation Sensor 1 Fresh
+        unique_id: irrigation_sensor_1_fresh
+        state: "{{ states('sensor.irrigation_sensor_1_vwc') not in ['unknown', 'unavailable', 'none', ''] and (now() - states.sensor.irrigation_sensor_1_vwc.last_updated).total_seconds() < 90 }}"
+      - name: Irrigation Sensor 2 Fresh
+        unique_id: irrigation_sensor_2_fresh
+        state: "{{ states('sensor.irrigation_sensor_2_vwc') not in ['unknown', 'unavailable', 'none', ''] and (now() - states.sensor.irrigation_sensor_2_vwc.last_updated).total_seconds() < 90 }}"
+      - name: Irrigation Sensor 3 Fresh
+        unique_id: irrigation_sensor_3_fresh
+        state: "{{ states('sensor.irrigation_sensor_3_vwc') not in ['unknown', 'unavailable', 'none', ''] and (now() - states.sensor.irrigation_sensor_3_vwc.last_updated).total_seconds() < 90 }}"
+      - name: Irrigation Sensor 4 Fresh
+        unique_id: irrigation_sensor_4_fresh
+        state: "{{ states('sensor.irrigation_sensor_4_vwc') not in ['unknown', 'unavailable', 'none', ''] and (now() - states.sensor.irrigation_sensor_4_vwc.last_updated).total_seconds() < 90 }}"
+      - name: Irrigation Sensor 5 Fresh
+        unique_id: irrigation_sensor_5_fresh
+        state: "{{ states('sensor.irrigation_sensor_5_vwc') not in ['unknown', 'unavailable', 'none', ''] and (now() - states.sensor.irrigation_sensor_5_vwc.last_updated).total_seconds() < 90 }}"
