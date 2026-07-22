@@ -1,0 +1,4 @@
+recorded_at,actual_pulse_s,requested_pulse_s,pulse_shortfall_s,s0_vwc,s0_vwc_before,s0_delta,s1_vwc,s1_vwc_before,s1_delta,s2_vwc,s2_vwc_before,s2_delta,s3_vwc,s3_vwc_before,s3_delta,s4_vwc,s4_vwc_before,s4_delta,s5_vwc,s5_vwc_before,s5_delta,min_delta,max_delta,avg_delta,limiting_sensor
+2026-06-01T10:45:00+00:00,1800,1800,0,42.1,35.2,6.9,44.0,36.8,7.2,,,,,,,,,,,,,6.9,7.2,7.05,0
+2026-06-02T08:15:00+00:00,900,1800,900,38.5,34.0,4.5,46.2,41.0,5.2,,,,,,,,,,,,,4.5,5.2,4.85,0
+2026-06-03T12:00:00+00:00,1200,1200,0,40.0,33.5,6.5,45.5,38.2,7.3,,,,,,,,,,,,,6.5,7.3,6.9,0

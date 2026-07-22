@@ -66,29 +66,48 @@ GET /api/history/period/{start}?filter_entity_id=sensor.irrigation_sensor_0_vwc,
 
 Enable only the sensor slots you use (`input_boolean.irrigation_sensor_N_enabled`).
 
-## Legacy export script
+## Export settle snapshots
 
-`scripts/export_irrigation_cycles.py` and `scripts/analyze_irrigation.py` target the **old** `irrigation_cycle_complete` event format. They remain for historical CSVs only.
+```bash
+python scripts/export_irrigation_cycles.py \
+  --db /path/to/home-assistant_v2.db \
+  --days 14 \
+  --out data/irrigation_settles.csv
+```
 
-After ~1 week of operation, plan to either:
+Legacy `irrigation_cycle_complete` export (historical CSVs only):
 
-- Export `irrigation_settle_snapshot` rows manually from SQLite, or
-- Extend the export script for the new event schema (future work).
+```bash
+python scripts/export_irrigation_cycles.py --legacy --db /path/to/home-assistant_v2.db
+```
 
-## Output files (convention)
+Optional moisture history around each settle (requires REST API):
 
-| File | Contents |
-|------|----------|
-| `data/irrigation_settles.csv` | One row per settle snapshot (when exported) |
-| `data/vwc_timeseries.csv` | Timestamped VWC + valve state |
-| `data/analysis_report.json` | Analysis output (future / legacy script) |
+```bash
+export HA_URL=http://10.0.4.169:8123
+export HA_TOKEN=your_long_lived_token
 
-`data/*.csv` and `data/*.json` are gitignored.
+python scripts/export_irrigation_cycles.py \
+  --db /path/to/home-assistant_v2.db \
+  --days 14 \
+  --out data/irrigation_settles.csv \
+  --timeseries-out data/vwc_timeseries.csv \
+  --url "$HA_URL" --token "$HA_TOKEN"
+```
 
-## Next step — after ~1 week
+## Analyze
 
-1. Confirm auto mode has run multiple full pulse → settle → idle cycles.
-2. Export settle events and sensor history from recorder.
-3. Review per-cycle `delta` vs `requested_pulse_s` and adjust min/target/max thresholds in HA if needed.
+```bash
+python scripts/analyze_irrigation.py \
+  --input data/irrigation_settles.csv \
+  --out data/analysis_report.json \
+  --min-rows 3
+```
 
-See [ha_drip_control.md](ha_drip_control.md) for control-loop behavior.
+The analyzer auto-detects settle vs legacy CSV format. Use `--min-rows 3` (default) — after ~1 week you should have enough pulses.
+
+Test with the sample fixture:
+
+```bash
+python scripts/analyze_irrigation.py --input data/fixtures/sample_settles.csv
+```

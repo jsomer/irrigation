@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Export irrigation_cycle_complete events and optional VWC time series from Home Assistant."""
+"""Export irrigation settle snapshots or legacy cycle events from Home Assistant."""
 
 from __future__ import annotations
 
 import argparse
+import ast
 import csv
 import json
 import os
@@ -14,12 +15,41 @@ import urllib.parse
 import urllib.request
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
-EVENT_TYPE = "irrigation_cycle_complete"
+EVENT_SETTLE = "irrigation_settle_snapshot"
+EVENT_LEGACY = "irrigation_cycle_complete"
 
-# All event fields (schema) plus export-time derived columns.
-CYCLE_COLUMNS = [
+SETTLE_COLUMNS = [
+    "recorded_at",
+    "actual_pulse_s",
+    "requested_pulse_s",
+    "pulse_shortfall_s",
+    "s0_vwc",
+    "s0_vwc_before",
+    "s0_delta",
+    "s1_vwc",
+    "s1_vwc_before",
+    "s1_delta",
+    "s2_vwc",
+    "s2_vwc_before",
+    "s2_delta",
+    "s3_vwc",
+    "s3_vwc_before",
+    "s3_delta",
+    "s4_vwc",
+    "s4_vwc_before",
+    "s4_delta",
+    "s5_vwc",
+    "s5_vwc_before",
+    "s5_delta",
+    "min_delta",
+    "max_delta",
+    "avg_delta",
+    "limiting_sensor",
+]
+
+LEGACY_COLUMNS = [
     "cycle_id",
     "ended_at",
     "cycle_started_at",
@@ -60,12 +90,16 @@ CYCLE_COLUMNS = [
 ]
 
 VWC_ENTITIES = [
-    "sensor.irrigation_sensor_0_vwc_resolved",
-    "sensor.irrigation_sensor_1_vwc_resolved",
-    "sensor.irrigation_valve_state_resolved",
+    "sensor.irrigation_sensor_0_vwc",
+    "sensor.irrigation_sensor_1_vwc",
+    "sensor.irrigation_sensor_2_vwc",
+    "sensor.irrigation_sensor_3_vwc",
+    "sensor.irrigation_sensor_4_vwc",
+    "sensor.irrigation_sensor_5_vwc",
+    "sensor.irrigation_valve_state",
 ]
 
-TIMESERIES_COLUMNS = ["cycle_id", "timestamp", "entity_id", "state"]
+TIMESERIES_COLUMNS = ["recorded_at", "timestamp", "entity_id", "state"]
 
 
 def _parse_float(value: Any, default: float = 0.0) -> float:
@@ -77,9 +111,67 @@ def _parse_float(value: Any, default: float = 0.0) -> float:
         return default
 
 
-def _coerce_event_row(raw: dict[str, Any]) -> dict[str, Any]:
-    """Normalize event_data dict to a flat row with derived columns."""
-    row = {col: raw.get(col, "") for col in CYCLE_COLUMNS if col in (
+def _parse_sensors(value: Any) -> list[dict[str, Any]]:
+    if value is None or value == "":
+        return []
+    if isinstance(value, list):
+        return [s for s in value if isinstance(s, dict)]
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return []
+        try:
+            parsed = json.loads(text)
+        except json.JSONDecodeError:
+            try:
+                parsed = ast.literal_eval(text)
+            except (SyntaxError, ValueError):
+                return []
+        if isinstance(parsed, list):
+            return [s for s in parsed if isinstance(s, dict)]
+    return []
+
+
+def _coerce_settle_row(raw: dict[str, Any], time_fired: str = "") -> dict[str, Any]:
+    recorded_at = raw.get("recorded_at") or time_fired
+    actual = int(_parse_float(raw.get("actual_pulse_s")))
+    requested = int(_parse_float(raw.get("requested_pulse_s")))
+    row: dict[str, Any] = {
+        "recorded_at": recorded_at,
+        "actual_pulse_s": actual,
+        "requested_pulse_s": requested,
+        "pulse_shortfall_s": max(0, requested - actual),
+    }
+
+    deltas: list[tuple[int, float]] = []
+    for sensor in _parse_sensors(raw.get("sensors")):
+        sid = int(_parse_float(sensor.get("id"), -1))
+        if sid < 0 or sid > 5:
+            continue
+        vwc = _parse_float(sensor.get("vwc"))
+        before = _parse_float(sensor.get("vwc_before"))
+        delta = _parse_float(sensor.get("delta"), vwc - before)
+        row[f"s{sid}_vwc"] = round(vwc, 2)
+        row[f"s{sid}_vwc_before"] = round(before, 2)
+        row[f"s{sid}_delta"] = round(delta, 2)
+        deltas.append((sid, delta))
+
+    if deltas:
+        row["min_delta"] = round(min(d for _, d in deltas), 2)
+        row["max_delta"] = round(max(d for _, d in deltas), 2)
+        row["avg_delta"] = round(sum(d for _, d in deltas) / len(deltas), 2)
+        row["limiting_sensor"] = min(deltas, key=lambda t: t[1])[0]
+    else:
+        row["min_delta"] = ""
+        row["max_delta"] = ""
+        row["avg_delta"] = ""
+        row["limiting_sensor"] = ""
+
+    return row
+
+
+def _coerce_legacy_row(raw: dict[str, Any], _time_fired: str = "") -> dict[str, Any]:
+    row = {col: raw.get(col, "") for col in LEGACY_COLUMNS if col in (
         "cycle_id", "ended_at", "cycle_started_at", "duration_min", "duration_min_setting",
         "actual_pulse_s", "gallons_estimated", "gallons_actual", "early_stop", "outcome",
         "cycles_this_event", "runtime_today_s", "settle_min_setting", "system_gph",
@@ -108,8 +200,12 @@ def _coerce_event_row(raw: dict[str, Any]) -> dict[str, Any]:
     return row
 
 
-def export_from_sqlite(db_path: Path, days: int) -> list[dict[str, Any]]:
-    """Read irrigation_cycle_complete events from the HA recorder database."""
+def _load_events_from_sqlite(
+    db_path: Path,
+    days: int,
+    event_type: str,
+    coerce: Callable[[dict[str, Any], str], dict[str, Any]],
+) -> list[dict[str, Any]]:
     if not db_path.is_file():
         raise FileNotFoundError(f"Database not found: {db_path}")
 
@@ -128,7 +224,7 @@ def export_from_sqlite(db_path: Path, days: int) -> list[dict[str, Any]]:
               AND e.time_fired >= ?
             ORDER BY e.time_fired
             """,
-            (EVENT_TYPE, since_iso),
+            (event_type, since_iso),
         ).fetchall()
     finally:
         conn.close()
@@ -142,9 +238,9 @@ def export_from_sqlite(db_path: Path, days: int) -> list[dict[str, Any]]:
         event_data = payload.get("event_data") or payload
         if not isinstance(event_data, dict):
             continue
-        if not event_data.get("ended_at"):
+        if event_type == EVENT_LEGACY and not event_data.get("ended_at"):
             event_data["ended_at"] = row["time_fired"]
-        events.append(_coerce_event_row(event_data))
+        events.append(coerce(event_data, row["time_fired"]))
     return events
 
 
@@ -158,52 +254,53 @@ def _ha_request(url: str, token: str, path: str, params: dict[str, str] | None =
         return json.loads(resp.read().decode())
 
 
-def export_from_logbook(url: str, token: str, days: int) -> list[dict[str, Any]]:
-    """Best-effort export via HA logbook REST API."""
+def _load_events_from_logbook(
+    url: str,
+    token: str,
+    days: int,
+    event_type: str,
+    coerce: Callable[[dict[str, Any], str], dict[str, Any]],
+) -> list[dict[str, Any]]:
     start = datetime.now(timezone.utc) - timedelta(days=days)
     end = datetime.now(timezone.utc)
-    params = {
-        "end_time": end.isoformat(),
-    }
+    params = {"end_time": end.isoformat()}
     entries = _ha_request(url, token, f"/api/logbook/{start.isoformat()}", params)
 
     events: list[dict[str, Any]] = []
     for entry in entries:
         name = entry.get("name") or entry.get("context_event_type") or ""
-        if name != EVENT_TYPE:
+        if name != event_type:
             continue
         event_data = entry.get("context_event_data") or {}
         if not event_data:
-            # Some HA versions nest data differently; skip incomplete rows.
             continue
-        if not event_data.get("ended_at"):
-            event_data["ended_at"] = entry.get("when", "")
-        events.append(_coerce_event_row(event_data))
+        when = entry.get("when", "")
+        if event_type == EVENT_LEGACY and not event_data.get("ended_at"):
+            event_data["ended_at"] = when
+        events.append(coerce(event_data, when))
     return events
 
 
 def export_timeseries(
     url: str,
     token: str,
-    cycles: list[dict[str, Any]],
+    settles: list[dict[str, Any]],
     window_before_min: int,
     window_after_min: int,
 ) -> list[dict[str, Any]]:
-    """Export VWC/valve history around each cycle start."""
     rows: list[dict[str, Any]] = []
-    for cycle in cycles:
-        cycle_id = cycle.get("cycle_id") or cycle.get("ended_at")
-        started = cycle.get("cycle_started_at") or cycle.get("ended_at")
-        if not started:
+    for settle in settles:
+        recorded_at = settle.get("recorded_at")
+        if not recorded_at:
             continue
         try:
-            start_dt = datetime.fromisoformat(str(started).replace("Z", "+00:00"))
+            center = datetime.fromisoformat(str(recorded_at).replace("Z", "+00:00"))
         except ValueError:
             continue
-        if start_dt.tzinfo is None:
-            start_dt = start_dt.replace(tzinfo=timezone.utc)
-        range_start = start_dt - timedelta(minutes=window_before_min)
-        range_end = start_dt + timedelta(minutes=window_after_min)
+        if center.tzinfo is None:
+            center = center.replace(tzinfo=timezone.utc)
+        range_start = center - timedelta(minutes=window_before_min)
+        range_end = center + timedelta(minutes=window_after_min)
         params = {
             "filter_entity_id": ",".join(VWC_ENTITIES),
             "minimal_response": "true",
@@ -214,7 +311,7 @@ def export_timeseries(
         try:
             history = _ha_request(url, token, "/api/history/period", params)
         except urllib.error.URLError as exc:
-            print(f"Warning: history fetch failed for cycle {cycle_id}: {exc}", file=sys.stderr)
+            print(f"Warning: history fetch failed for {recorded_at}: {exc}", file=sys.stderr)
             continue
         for entity_history in history:
             if not entity_history:
@@ -222,7 +319,7 @@ def export_timeseries(
             entity_id = entity_history[0].get("entity_id", "")
             for point in entity_history:
                 rows.append({
-                    "cycle_id": cycle_id,
+                    "recorded_at": recorded_at,
                     "timestamp": point.get("last_changed") or point.get("last_updated", ""),
                     "entity_id": entity_id,
                     "state": point.get("state", ""),
@@ -239,26 +336,14 @@ def write_csv(path: Path, columns: list[str], rows: list[dict[str, Any]]) -> Non
             writer.writerow(row)
 
 
-def _ha_call_service(url: str, token: str, domain: str, service: str, data: dict[str, Any]) -> None:
-    payload = json.dumps(data).encode()
-    req = urllib.request.Request(
-        f"{url.rstrip('/')}/api/services/{domain}/{service}",
-        data=payload,
-        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-        method="POST",
-    )
-    with urllib.request.urlopen(req, timeout=30):
-        pass
-
-
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--days", type=int, default=90, help="Lookback window (default: 90)")
     parser.add_argument(
         "--out",
         type=Path,
-        default=Path("data/irrigation_cycles.csv"),
-        help="Output CSV path",
+        default=None,
+        help="Output CSV path (default: data/irrigation_settles.csv or legacy cycles path)",
     )
     parser.add_argument(
         "--timeseries-out",
@@ -266,37 +351,36 @@ def main() -> int:
         default=None,
         help="Optional VWC time series CSV (requires --url and --token)",
     )
+    parser.add_argument("--db", type=Path, default=None, help="Path to home-assistant_v2.db")
+    parser.add_argument("--url", default=os.environ.get("HA_URL", ""))
+    parser.add_argument("--token", default=os.environ.get("HA_TOKEN", ""))
     parser.add_argument(
-        "--db",
-        type=Path,
-        default=None,
-        help="Path to home-assistant_v2.db (recommended)",
-    )
-    parser.add_argument(
-        "--url",
-        default=os.environ.get("HA_URL", ""),
-        help="Home Assistant URL (or HA_URL env)",
-    )
-    parser.add_argument(
-        "--token",
-        default=os.environ.get("HA_TOKEN", ""),
-        help="Long-lived access token (or HA_TOKEN env)",
-    )
-    parser.add_argument(
-        "--apply-to-ha",
+        "--legacy",
         action="store_true",
-        help="Set input_datetime.irrigation_analysis_last_export on HA",
+        help="Export irrigation_cycle_complete (legacy) instead of settle snapshots",
     )
     args = parser.parse_args()
 
-    cycles: list[dict[str, Any]] = []
+    if args.legacy:
+        event_type = EVENT_LEGACY
+        columns = LEGACY_COLUMNS
+        coerce = _coerce_legacy_row
+        default_out = Path("data/irrigation_cycles.csv")
+    else:
+        event_type = EVENT_SETTLE
+        columns = SETTLE_COLUMNS
+        coerce = _coerce_settle_row
+        default_out = Path("data/irrigation_settles.csv")
+
+    out_path = args.out or default_out
+
     if args.db:
-        cycles = export_from_sqlite(args.db, args.days)
-        print(f"SQLite: found {len(cycles)} {EVENT_TYPE} events in last {args.days} days")
+        rows = _load_events_from_sqlite(args.db, args.days, event_type, coerce)
+        print(f"SQLite: found {len(rows)} {event_type} events in last {args.days} days")
     elif args.url and args.token:
-        cycles = export_from_logbook(args.url, args.token, args.days)
-        print(f"Logbook API: found {len(cycles)} {EVENT_TYPE} events in last {args.days} days")
-        if not cycles:
+        rows = _load_events_from_logbook(args.url, args.token, args.days, event_type, coerce)
+        print(f"Logbook API: found {len(rows)} {event_type} events in last {args.days} days")
+        if not rows:
             print(
                 "No events via logbook. For full event_data, use --db with the recorder SQLite file.",
                 file=sys.stderr,
@@ -305,35 +389,20 @@ def main() -> int:
         print("Provide --db or both --url and --token (HA_URL / HA_TOKEN).", file=sys.stderr)
         return 1
 
-    if not cycles:
-        print("No cycle events exported.", file=sys.stderr)
+    if not rows:
+        print(f"No {event_type} events exported.", file=sys.stderr)
         return 2
 
-    write_csv(args.out, CYCLE_COLUMNS, cycles)
-    print(f"Wrote {len(cycles)} rows to {args.out}")
+    write_csv(out_path, columns, rows)
+    print(f"Wrote {len(rows)} rows to {out_path}")
 
     if args.timeseries_out:
         if not (args.url and args.token):
             print("--timeseries-out requires --url and --token", file=sys.stderr)
             return 1
-        ts_rows = export_timeseries(args.url, args.token, cycles, 30, 90)
+        ts_rows = export_timeseries(args.url, args.token, rows, 30, 90)
         write_csv(args.timeseries_out, TIMESERIES_COLUMNS, ts_rows)
         print(f"Wrote {len(ts_rows)} time series rows to {args.timeseries_out}")
-
-    if args.apply_to_ha:
-        if not (args.url and args.token):
-            print("--apply-to-ha requires --url and --token", file=sys.stderr)
-            return 1
-        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        try:
-            _ha_call_service(args.url, args.token, "input_datetime", "set_datetime", {
-                "entity_id": "input_datetime.irrigation_analysis_last_export",
-                "datetime": now,
-            })
-            print("Updated irrigation_analysis_last_export on Home Assistant.")
-        except urllib.error.URLError as exc:
-            print(f"Failed to update HA: {exc}", file=sys.stderr)
-            return 1
 
     return 0
 
