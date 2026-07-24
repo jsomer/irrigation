@@ -105,8 +105,7 @@ Deploy irrigation config to Home Assistant at http://${HA_HOST}:8123
    Paste contents from:
    ${ROOT}/homeassistant/dashboards/irrigation.yaml
 
-   Moisture graph requires HACS "auto-entities" (HACS → Frontend → search
-   "auto-entities" → install → reload Lovelace).
+   Moisture history uses built-in history-graph cards (no HACS auto-entities).
 
 3. Developer Tools → YAML → Check configuration, then Restart Home Assistant
 

@@ -156,11 +156,47 @@ template:
         device_class: connectivity
         state: "{{ trigger.payload == 'online' }}"
 
+  # Authoritative valve state for HA logic/UI. Raw MQTT sensor keeps last payload
+  # forever if telemetry stops; this times out after 45 s (firmware publishes ~10 s).
+  - trigger:
+      - platform: state
+        entity_id:
+          - sensor.irrigation_valve_state
+          - sensor.irrigation_actual_pulse_s
+          - binary_sensor.irrigation_controller_online
+          - binary_sensor.irrigation_valve
+      - platform: time_pattern
+        seconds: "/15"
+    sensor:
+      - name: Irrigation Valve State Resolved
+        unique_id: irrigation_valve_state_resolved
+        icon: mdi:valve
+        state: |
+          {% if not is_state('binary_sensor.irrigation_controller_online', 'on') %}
+            unknown
+          {% else %}
+            {% set raw = states('sensor.irrigation_valve_state') %}
+            {% if raw in ['unknown', 'unavailable', 'none', ''] %}
+              unknown
+            {% elif states.sensor.irrigation_valve_state is none
+                  or (now() - states.sensor.irrigation_valve_state.last_changed).total_seconds() > 45 %}
+              unknown
+            {% else %}
+              {{ raw }}
+            {% endif %}
+          {% endif %}
+
+      - name: Irrigation Actual Pulse Min
+        unique_id: irrigation_actual_pulse_min
+        icon: mdi:timer-outline
+        unit_of_measurement: min
+        state: "{{ (states('sensor.irrigation_actual_pulse_s') | float(0) / 60) | round(1) }}"
+
   - trigger:
       - platform: state
         entity_id:
           - input_select.irrigation_control_mode
-          - sensor.irrigation_valve_state
+          - sensor.irrigation_valve_state_resolved
           - binary_sensor.irrigation_controller_online
           - input_boolean.irrigation_sensor_0_enabled
           - input_boolean.irrigation_sensor_1_enabled
@@ -200,6 +236,7 @@ template:
         icon: mdi:information-outline
         state: |
           {% set ns = namespace(enabled=[], stale=false, at_max=false, all_ok=true, ok_parts=[]) %}
+          {% set valve = states('sensor.irrigation_valve_state_resolved') %}
           {% for i in range(6) %}
             {% if is_state('input_boolean.irrigation_sensor_' ~ i ~ '_enabled', 'on') %}
               {% set ns.enabled = ns.enabled + [i] %}
@@ -209,10 +246,10 @@ template:
             Not in auto mode
           {% elif not is_state('binary_sensor.irrigation_controller_online', 'on') %}
             Controller offline
-          {% elif states('sensor.irrigation_valve_state') in ['unknown', 'unavailable', 'none', ''] %}
+          {% elif valve in ['unknown', 'unavailable', 'none', ''] %}
             Valve status unknown
-          {% elif states('sensor.irrigation_valve_state') != 'idle' %}
-            Valve {{ states('sensor.irrigation_valve_state') }}
+          {% elif valve != 'idle' %}
+            Valve {{ valve }}
           {% elif ns.enabled | length == 0 %}
             No sensors enabled
           {% else %}
@@ -249,7 +286,7 @@ template:
       - platform: state
         entity_id:
           - sensor.irrigation_auto_block_reason
-          - sensor.irrigation_valve_state
+          - sensor.irrigation_valve_state_resolved
           - binary_sensor.irrigation_controller_online
           - input_select.irrigation_control_mode
           - sensor.irrigation_error_code
@@ -257,21 +294,19 @@ template:
         seconds: "/15"
     sensor:
       # Plain-language operator status. Derived from auto_block_reason /
-      # valve_state / control_mode rather than recomputing sensor bands here —
-      # duplicated small loops are avoided in favor of a short lag (<=15s)
-      # against those sibling sensors, which is fine for a human-facing label.
+      # valve_state_resolved / control_mode rather than recomputing sensor bands.
       - name: Irrigation Water Status
         unique_id: irrigation_water_status
         icon: mdi:water-pump
         state: |
           {% set mode = states('input_select.irrigation_control_mode') %}
-          {% set valve = states('sensor.irrigation_valve_state') %}
+          {% set valve = states('sensor.irrigation_valve_state_resolved') %}
           {% set reason = states('sensor.irrigation_auto_block_reason') %}
           {% if valve == 'fault' %}
             Error
           {% elif not is_state('binary_sensor.irrigation_controller_online', 'on') or valve in ['unknown', 'unavailable', 'none', ''] %}
             Offline
-          {% elif valve == 'pulsing' or reason == 'Ready' %}
+          {% elif valve == 'pulsing' %}
             Watering Now
           {% elif valve == 'settling' %}
             Not Watering
@@ -285,7 +320,7 @@ template:
         attributes:
           reason: |
             {% set mode = states('input_select.irrigation_control_mode') %}
-            {% set valve = states('sensor.irrigation_valve_state') %}
+            {% set valve = states('sensor.irrigation_valve_state_resolved') %}
             {% set reason = states('sensor.irrigation_auto_block_reason') %}
             {% if valve == 'fault' %}
               error code present ({{ states('sensor.irrigation_error_code') }})
@@ -293,10 +328,10 @@ template:
               controller offline
             {% elif valve == 'pulsing' %}
               pulsing
-            {% elif reason == 'Ready' %}
-              starting pulse
             {% elif valve == 'settling' %}
               settling
+            {% elif reason == 'Ready' %}
+              ready (standing by)
             {% elif mode == 'manual' %}
               manual mode
             {% elif mode == 'disabled' %}
@@ -313,27 +348,26 @@ template:
               {{ reason }}
             {% endif %}
           action: |
-            {% set valve = states('sensor.irrigation_valve_state') %}
-            {% set reason = states('sensor.irrigation_auto_block_reason') %}
+            {% set valve = states('sensor.irrigation_valve_state_resolved') %}
             {% if valve == 'pulsing' %}
               Pulsing
-            {% elif reason == 'Ready' and valve == 'idle' %}
-              Requesting pulse
             {% else %}
               —
             {% endif %}
           resume_hint: |
             {% set mode = states('input_select.irrigation_control_mode') %}
-            {% set valve = states('sensor.irrigation_valve_state') %}
+            {% set valve = states('sensor.irrigation_valve_state_resolved') %}
             {% set reason = states('sensor.irrigation_auto_block_reason') %}
             {% if valve == 'fault' %}
               Resume blocked until fault is cleared
             {% elif not is_state('binary_sensor.irrigation_controller_online', 'on') or valve in ['unknown', 'unavailable', 'none', ''] %}
               Resume blocked until controller reconnects
-            {% elif valve in ['pulsing', 'settling'] or reason == 'Ready' %}
+            {% elif valve in ['pulsing', 'settling'] %}
               —
             {% elif mode != 'auto' %}
               Resume blocked until mode returns to Auto
+            {% elif reason == 'Ready' %}
+              —
             {% elif reason == 'No sensors enabled' %}
               Enable at least one sensor to resume automatic watering
             {% elif reason == 'Sensor stale or unavailable' %}
@@ -344,21 +378,21 @@ template:
               Will resume when any enabled sensor falls below its lower threshold
             {% endif %}
 
-  # Moisture chart event-overlay rows. Pure state-based (no now()), so they
-  # re-evaluate whenever sensor.irrigation_valve_state changes — no trigger needed.
+  # Moisture chart event-overlay rows — use resolved valve state so overlays
+  # do not stick on after stale MQTT telemetry.
   - binary_sensor:
       - name: Irrigation Is Watering
         unique_id: irrigation_is_watering
         icon: mdi:water
-        state: "{{ is_state('sensor.irrigation_valve_state', 'pulsing') }}"
+        state: "{{ is_state('sensor.irrigation_valve_state_resolved', 'pulsing') }}"
       - name: Irrigation Is Settling
         unique_id: irrigation_is_settling
         icon: mdi:timer-sand
-        state: "{{ is_state('sensor.irrigation_valve_state', 'settling') }}"
+        state: "{{ is_state('sensor.irrigation_valve_state_resolved', 'settling') }}"
       - name: Irrigation Has Error
         unique_id: irrigation_has_error
         icon: mdi:alert-circle
-        state: "{{ is_state('sensor.irrigation_valve_state', 'fault') }}"
+        state: "{{ is_state('sensor.irrigation_valve_state_resolved', 'fault') }}"
 
 script:
   irrigation_sync_firmware:
@@ -675,7 +709,7 @@ script:
     mode: queued
     sequence:
       - variables:
-          phase: "{{ states('sensor.irrigation_valve_state') }}"
+          phase: "{{ states('sensor.irrigation_valve_state_resolved') }}"
           total_pulse: "{{ states('input_number.irrigation_last_requested_pulse_s') | int(0) }}"
           total_settle: "{{ states('input_number.irrigation_settle_min') | int(20) * 60 }}"
           pulse_started: "{{ as_timestamp(states('input_datetime.irrigation_pulse_started_at'), 0) }}"

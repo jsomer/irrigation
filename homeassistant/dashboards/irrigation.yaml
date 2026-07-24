@@ -1,5 +1,5 @@
 # Irrigation Lovelace dashboard — Status-first operator layout.
-# Moisture chart requires HACS "auto-entities" (Frontend → search auto-entities → install → reload).
+# Moisture history uses built-in history-graph cards (no HACS auto-entities).
 
 title: Irrigation
 views:
@@ -45,6 +45,8 @@ views:
                 name: Controller
               - entity: sensor.irrigation_auto_block_reason
                 name: Auto Status
+              - entity: sensor.irrigation_valve_state_resolved
+                name: Valve State (Resolved)
               - entity: sensor.irrigation_valve_state
                 name: Valve Command (Firmware State)
               - entity: binary_sensor.irrigation_valve
@@ -57,8 +59,8 @@ views:
             entities:
               - entity: input_datetime.irrigation_pulse_started_at
                 name: Last Water Event
-              - entity: sensor.irrigation_actual_pulse_s
-                name: Last Water Duration (s)
+              - entity: sensor.irrigation_actual_pulse_min
+                name: Last Water Duration (min)
               - entity: input_text.irrigation_last_stop_reason
                 name: Last Stop Reason
               - entity: input_datetime.irrigation_last_settle_at
@@ -80,163 +82,159 @@ views:
               - entity: input_select.irrigation_chart_range
                 name: Time Range
               - entity: input_select.irrigation_chart_sensor_mode
-                name: Sensors
+                name: Sensors (gauges / future filters)
               - entity: input_boolean.irrigation_chart_show_watering
-                name: "Overlay: Watering"
+                name: "Overlay: Watering (always on graph)"
               - entity: input_boolean.irrigation_chart_show_settle
-                name: "Overlay: Settle Periods"
+                name: "Overlay: Settle (always on graph)"
               - entity: input_boolean.irrigation_chart_show_errors
-                name: "Overlay: Errors"
+                name: "Overlay: Errors (always on graph)"
+
+          - type: markdown
+            content: >
+              History graphs always include all six VWC sensors plus watering /
+              settle / error overlays (sparse binaries). Use **Time Range** to
+              switch the visible window.
 
           - type: conditional
             conditions:
               - entity: input_select.irrigation_chart_range
                 state: 1h
             card:
-              type: custom:auto-entities
-              card:
-                type: history-graph
-                title: Moisture (1 h)
-                hours_to_show: 1
-              filter:
-                template: |
-                  [
-                  {% set mode = states('input_select.irrigation_chart_sensor_mode') %}
-                  {% for i in range(6) %}
-                  {% if mode == 'All' or is_state('input_boolean.irrigation_sensor_' ~ i ~ '_enabled', 'on') %}
-                  {{ {'entity': 'sensor.irrigation_sensor_' ~ i ~ '_vwc', 'name': 'Sensor ' ~ i} }},
-                  {% endif %}
-                  {% endfor %}
-                  {% if is_state('input_boolean.irrigation_chart_show_watering', 'on') %}
-                  {{ {'entity': 'binary_sensor.irrigation_is_watering', 'name': 'Watering'} }},
-                  {% endif %}
-                  {% if is_state('input_boolean.irrigation_chart_show_settle', 'on') %}
-                  {{ {'entity': 'binary_sensor.irrigation_is_settling', 'name': 'Settling'} }},
-                  {% endif %}
-                  {% if is_state('input_boolean.irrigation_chart_show_errors', 'on') %}
-                  {{ {'entity': 'binary_sensor.irrigation_has_error', 'name': 'Error'} }},
-                  {% endif %}
-                  ]
+              type: history-graph
+              title: Moisture (1 h)
+              hours_to_show: 1
+              entities:
+                - entity: sensor.irrigation_sensor_0_vwc
+                  name: Sensor 0
+                - entity: sensor.irrigation_sensor_1_vwc
+                  name: Sensor 1
+                - entity: sensor.irrigation_sensor_2_vwc
+                  name: Sensor 2
+                - entity: sensor.irrigation_sensor_3_vwc
+                  name: Sensor 3
+                - entity: sensor.irrigation_sensor_4_vwc
+                  name: Sensor 4
+                - entity: sensor.irrigation_sensor_5_vwc
+                  name: Sensor 5
+                - entity: binary_sensor.irrigation_is_watering
+                  name: Watering
+                - entity: binary_sensor.irrigation_is_settling
+                  name: Settling
+                - entity: binary_sensor.irrigation_has_error
+                  name: Error
 
           - type: conditional
             conditions:
               - entity: input_select.irrigation_chart_range
                 state: 8h
             card:
-              type: custom:auto-entities
-              card:
-                type: history-graph
-                title: Moisture (8 h)
-                hours_to_show: 8
-              filter:
-                template: |
-                  [
-                  {% set mode = states('input_select.irrigation_chart_sensor_mode') %}
-                  {% for i in range(6) %}
-                  {% if mode == 'All' or is_state('input_boolean.irrigation_sensor_' ~ i ~ '_enabled', 'on') %}
-                  {{ {'entity': 'sensor.irrigation_sensor_' ~ i ~ '_vwc', 'name': 'Sensor ' ~ i} }},
-                  {% endif %}
-                  {% endfor %}
-                  {% if is_state('input_boolean.irrigation_chart_show_watering', 'on') %}
-                  {{ {'entity': 'binary_sensor.irrigation_is_watering', 'name': 'Watering'} }},
-                  {% endif %}
-                  {% if is_state('input_boolean.irrigation_chart_show_settle', 'on') %}
-                  {{ {'entity': 'binary_sensor.irrigation_is_settling', 'name': 'Settling'} }},
-                  {% endif %}
-                  {% if is_state('input_boolean.irrigation_chart_show_errors', 'on') %}
-                  {{ {'entity': 'binary_sensor.irrigation_has_error', 'name': 'Error'} }},
-                  {% endif %}
-                  ]
+              type: history-graph
+              title: Moisture (8 h)
+              hours_to_show: 8
+              entities:
+                - entity: sensor.irrigation_sensor_0_vwc
+                  name: Sensor 0
+                - entity: sensor.irrigation_sensor_1_vwc
+                  name: Sensor 1
+                - entity: sensor.irrigation_sensor_2_vwc
+                  name: Sensor 2
+                - entity: sensor.irrigation_sensor_3_vwc
+                  name: Sensor 3
+                - entity: sensor.irrigation_sensor_4_vwc
+                  name: Sensor 4
+                - entity: sensor.irrigation_sensor_5_vwc
+                  name: Sensor 5
+                - entity: binary_sensor.irrigation_is_watering
+                  name: Watering
+                - entity: binary_sensor.irrigation_is_settling
+                  name: Settling
+                - entity: binary_sensor.irrigation_has_error
+                  name: Error
 
           - type: conditional
             conditions:
               - entity: input_select.irrigation_chart_range
                 state: 24h
             card:
-              type: custom:auto-entities
-              card:
-                type: history-graph
-                title: Moisture (24 h)
-                hours_to_show: 24
-              filter:
-                template: |
-                  [
-                  {% set mode = states('input_select.irrigation_chart_sensor_mode') %}
-                  {% for i in range(6) %}
-                  {% if mode == 'All' or is_state('input_boolean.irrigation_sensor_' ~ i ~ '_enabled', 'on') %}
-                  {{ {'entity': 'sensor.irrigation_sensor_' ~ i ~ '_vwc', 'name': 'Sensor ' ~ i} }},
-                  {% endif %}
-                  {% endfor %}
-                  {% if is_state('input_boolean.irrigation_chart_show_watering', 'on') %}
-                  {{ {'entity': 'binary_sensor.irrigation_is_watering', 'name': 'Watering'} }},
-                  {% endif %}
-                  {% if is_state('input_boolean.irrigation_chart_show_settle', 'on') %}
-                  {{ {'entity': 'binary_sensor.irrigation_is_settling', 'name': 'Settling'} }},
-                  {% endif %}
-                  {% if is_state('input_boolean.irrigation_chart_show_errors', 'on') %}
-                  {{ {'entity': 'binary_sensor.irrigation_has_error', 'name': 'Error'} }},
-                  {% endif %}
-                  ]
+              type: history-graph
+              title: Moisture (24 h)
+              hours_to_show: 24
+              entities:
+                - entity: sensor.irrigation_sensor_0_vwc
+                  name: Sensor 0
+                - entity: sensor.irrigation_sensor_1_vwc
+                  name: Sensor 1
+                - entity: sensor.irrigation_sensor_2_vwc
+                  name: Sensor 2
+                - entity: sensor.irrigation_sensor_3_vwc
+                  name: Sensor 3
+                - entity: sensor.irrigation_sensor_4_vwc
+                  name: Sensor 4
+                - entity: sensor.irrigation_sensor_5_vwc
+                  name: Sensor 5
+                - entity: binary_sensor.irrigation_is_watering
+                  name: Watering
+                - entity: binary_sensor.irrigation_is_settling
+                  name: Settling
+                - entity: binary_sensor.irrigation_has_error
+                  name: Error
 
           - type: conditional
             conditions:
               - entity: input_select.irrigation_chart_range
                 state: 3d
             card:
-              type: custom:auto-entities
-              card:
-                type: history-graph
-                title: Moisture (3 d)
-                hours_to_show: 72
-              filter:
-                template: |
-                  [
-                  {% set mode = states('input_select.irrigation_chart_sensor_mode') %}
-                  {% for i in range(6) %}
-                  {% if mode == 'All' or is_state('input_boolean.irrigation_sensor_' ~ i ~ '_enabled', 'on') %}
-                  {{ {'entity': 'sensor.irrigation_sensor_' ~ i ~ '_vwc', 'name': 'Sensor ' ~ i} }},
-                  {% endif %}
-                  {% endfor %}
-                  {% if is_state('input_boolean.irrigation_chart_show_watering', 'on') %}
-                  {{ {'entity': 'binary_sensor.irrigation_is_watering', 'name': 'Watering'} }},
-                  {% endif %}
-                  {% if is_state('input_boolean.irrigation_chart_show_settle', 'on') %}
-                  {{ {'entity': 'binary_sensor.irrigation_is_settling', 'name': 'Settling'} }},
-                  {% endif %}
-                  {% if is_state('input_boolean.irrigation_chart_show_errors', 'on') %}
-                  {{ {'entity': 'binary_sensor.irrigation_has_error', 'name': 'Error'} }},
-                  {% endif %}
-                  ]
+              type: history-graph
+              title: Moisture (3 d)
+              hours_to_show: 72
+              entities:
+                - entity: sensor.irrigation_sensor_0_vwc
+                  name: Sensor 0
+                - entity: sensor.irrigation_sensor_1_vwc
+                  name: Sensor 1
+                - entity: sensor.irrigation_sensor_2_vwc
+                  name: Sensor 2
+                - entity: sensor.irrigation_sensor_3_vwc
+                  name: Sensor 3
+                - entity: sensor.irrigation_sensor_4_vwc
+                  name: Sensor 4
+                - entity: sensor.irrigation_sensor_5_vwc
+                  name: Sensor 5
+                - entity: binary_sensor.irrigation_is_watering
+                  name: Watering
+                - entity: binary_sensor.irrigation_is_settling
+                  name: Settling
+                - entity: binary_sensor.irrigation_has_error
+                  name: Error
 
           - type: conditional
             conditions:
               - entity: input_select.irrigation_chart_range
                 state: 7d
             card:
-              type: custom:auto-entities
-              card:
-                type: history-graph
-                title: Moisture (7 d)
-                hours_to_show: 168
-              filter:
-                template: |
-                  [
-                  {% set mode = states('input_select.irrigation_chart_sensor_mode') %}
-                  {% for i in range(6) %}
-                  {% if mode == 'All' or is_state('input_boolean.irrigation_sensor_' ~ i ~ '_enabled', 'on') %}
-                  {{ {'entity': 'sensor.irrigation_sensor_' ~ i ~ '_vwc', 'name': 'Sensor ' ~ i} }},
-                  {% endif %}
-                  {% endfor %}
-                  {% if is_state('input_boolean.irrigation_chart_show_watering', 'on') %}
-                  {{ {'entity': 'binary_sensor.irrigation_is_watering', 'name': 'Watering'} }},
-                  {% endif %}
-                  {% if is_state('input_boolean.irrigation_chart_show_settle', 'on') %}
-                  {{ {'entity': 'binary_sensor.irrigation_is_settling', 'name': 'Settling'} }},
-                  {% endif %}
-                  {% if is_state('input_boolean.irrigation_chart_show_errors', 'on') %}
-                  {{ {'entity': 'binary_sensor.irrigation_has_error', 'name': 'Error'} }},
-                  {% endif %}
-                  ]
+              type: history-graph
+              title: Moisture (7 d)
+              hours_to_show: 168
+              entities:
+                - entity: sensor.irrigation_sensor_0_vwc
+                  name: Sensor 0
+                - entity: sensor.irrigation_sensor_1_vwc
+                  name: Sensor 1
+                - entity: sensor.irrigation_sensor_2_vwc
+                  name: Sensor 2
+                - entity: sensor.irrigation_sensor_3_vwc
+                  name: Sensor 3
+                - entity: sensor.irrigation_sensor_4_vwc
+                  name: Sensor 4
+                - entity: sensor.irrigation_sensor_5_vwc
+                  name: Sensor 5
+                - entity: binary_sensor.irrigation_is_watering
+                  name: Watering
+                - entity: binary_sensor.irrigation_is_settling
+                  name: Settling
+                - entity: binary_sensor.irrigation_has_error
+                  name: Error
 
       - type: grid
         title: Sensor Gauges
