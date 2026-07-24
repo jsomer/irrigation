@@ -105,7 +105,7 @@ Deploy irrigation config to Home Assistant at http://${HA_HOST}:8123
    Paste contents from:
    ${ROOT}/homeassistant/dashboards/irrigation.yaml
 
-   Moisture history uses built-in history-graph cards (no HACS auto-entities).
+   Moisture history needs HACS auto-entities (enabled sensors only on the chart).
 
 3. Developer Tools → YAML → Check configuration, then Restart Home Assistant
 
