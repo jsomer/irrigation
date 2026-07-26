@@ -5,6 +5,34 @@
 
 ---
 
+## Multi-controller namespace
+
+Every physical controller has an `IRRIGATION_INSTANCE_ID` configured in its
+local `firmware/src/secrets.h`. The ID is the stable machine identifier for that
+installation.
+
+- Allowed form: lowercase ASCII letters, digits, `_`, and `-`
+- Maximum length: 32 characters
+- Must be unique among controllers connected to the same MQTT broker
+- Must not be changed after Home Assistant has been provisioned unless the
+  controller is intentionally being migrated as a new instance
+
+Example IDs: `raised_bed`, `vegetable_garden`.
+
+All runtime topics use this root:
+
+```text
+irrigation/<instance_id>
+```
+
+The MQTT client ID is `irrigation-<instance_id>`. The broker credentials may be
+shared, but the instance ID and resulting client ID may not.
+
+In the remainder of this specification, `<root>` means
+`irrigation/<instance_id>`.
+
+---
+
 ## Architecture
 
 Home Assistant reads moisture telemetry and sends pulse commands. Firmware executes pulse → settle → idle.
@@ -21,7 +49,7 @@ Sensor 0..5 (A0–A5) ── telemetry ──► Home Assistant
 
 ## Valve telemetry
 
-**Topic:** `irrigation/valve/telemetry`  
+**Topic:** `<root>/valve/telemetry`
 **Interval:** ~10 s
 
 | Field | Type | Description |
@@ -47,7 +75,7 @@ Sensor 0..5 (A0–A5) ── telemetry ──► Home Assistant
 
 ## Valve command
 
-**Topic:** `irrigation/valve/command`
+**Topic:** `<root>/valve/command`
 
 | Action | Fields | Effect |
 |--------|--------|--------|
@@ -72,7 +100,7 @@ Sensor 0..5 (A0–A5) ── telemetry ──► Home Assistant
 
 ## Sensor telemetry
 
-**Topic:** `irrigation/sensor/<id>/telemetry`
+**Topic:** `<root>/sensor/<sensor_id>/telemetry`
 
 ```json
 {"sensor":0,"vwc":18.3,"voltage":1.42,"ts":1024}
@@ -90,32 +118,99 @@ Sensor 0..5 (A0–A5) ── telemetry ──► Home Assistant
 
 ## Valve status (LWT)
 
-**Topic:** `irrigation/valve/status` — retained `online` / `offline`
+**Topic:** `<root>/valve/status` — retained `online` / `offline`
+
+This is also the MQTT Last Will topic. Home Assistant must use the status topic
+from the same instance as the availability source for all entities belonging to
+that controller.
+
+---
+
+## Home Assistant MQTT Discovery contract
+
+Firmware publishes retained discovery messages using:
+
+```text
+homeassistant/<domain>/irrigation_<instance_id>/<local_entity_id>/config
+```
+
+Each discovery payload uses:
+
+| Field | Required value |
+|-------|----------------|
+| `device.identifiers[0]` | `irrigation_<instance_id>` |
+| `device.name` | `IRRIGATION_INSTANCE_NAME` from that controller |
+| `object_id` | `irrigation_<instance_id>_<local_entity_id>` |
+| `unique_id` | `irrigation_<instance_id>_<local_entity_id>` |
+| `availability_topic` | `<root>/valve/status` |
+
+The display name is `<instance_name> <entity name>`. For example, instance
+`raised_bed` named `Raised Bed` publishes:
+
+```text
+MQTT client:       irrigation-raised_bed
+Runtime root:      irrigation/raised_bed
+HA device ID:      irrigation_raised_bed
+Discovery topic:   homeassistant/sensor/irrigation_raised_bed/sensor_0_vwc/config
+Entity unique ID:  irrigation_raised_bed_sensor_0_vwc
+Display name:      Raised Bed Sensor 0 VWC
+```
 
 ---
 
 ## Home Assistant entities
 
-Package defines core entities in `irrigation.yaml` and `irrigation_sensors.yaml`; firmware discovery adds matching IDs:
+Firmware discovery entity IDs are instance-scoped. Home Assistant package
+entities, helpers, scripts, automations, and dashboard references must use the
+same instance prefix; no unscoped entity may be shared by two controllers.
 
-| Entity | Source |
-|--------|--------|
-| `input_boolean.irrigation_sensor_N_enabled` | Package (HA logical enable) |
-| `input_text.irrigation_sensor_N_label` | Package (optional display name) |
-| `sensor.irrigation_sensor_N_vwc` | HA template (calibrated) |
-| `sensor.irrigation_sensor_N_vwc_raw` | HA template (firmware VWC) |
-| `sensor.irrigation_sensor_N_voltage` | HA template (signal V at ADC) |
-| `sensor.irrigation_valve_state` | Package + discovery |
-| `binary_sensor.irrigation_valve` | Package + discovery |
-| `sensor.irrigation_actual_pulse_s` | Package + discovery |
-| `sensor.irrigation_pulse_elapsed_s` | Discovery |
-| `sensor.irrigation_valve_pulse_count` | Discovery |
-| `sensor.irrigation_error_code` | Package + discovery |
-| `sensor.irrigation_fault_reason` | Discovery |
-| `binary_sensor.irrigation_firmware_configured` | Discovery |
-| `sensor.irrigation_config_source` | Discovery |
-| `binary_sensor.irrigation_controller_online` | Package + discovery |
-| `button.irrigation_valve_close` | Discovery |
-| `button.irrigation_clear_fault` | Discovery |
+| Local entity ID | Discovery domain | HA unique/object ID |
+|-----------------|------------------|---------------------|
+| `sensor_N_vwc` | `sensor` | `irrigation_<instance_id>_sensor_N_vwc` |
+| `controller_online` | `binary_sensor` | `irrigation_<instance_id>_controller_online` |
+| `valve` | `binary_sensor` | `irrigation_<instance_id>_valve` |
+| `valve_state` | `sensor` | `irrigation_<instance_id>_valve_state` |
+| `valve_pulse_count` | `sensor` | `irrigation_<instance_id>_valve_pulse_count` |
+| `pulse_elapsed_s` | `sensor` | `irrigation_<instance_id>_pulse_elapsed_s` |
+| `error_code` | `sensor` | `irrigation_<instance_id>_error_code` |
+| `fault_reason` | `sensor` | `irrigation_<instance_id>_fault_reason` |
+| `firmware_configured` | `binary_sensor` | `irrigation_<instance_id>_firmware_configured` |
+| `config_source` | `sensor` | `irrigation_<instance_id>_config_source` |
+| `valve_close` | `button` | `irrigation_<instance_id>_valve_close` |
+| `clear_fault` | `button` | `irrigation_<instance_id>_clear_fault` |
 
 Pulse is requested by HA scripts (`irrigation_request_pulse`), not a discovery button.
+
+### Requirements for the HA software update
+
+For each configured controller, HA must:
+
+1. Subscribe to that controller's `<root>/sensor/+/telemetry`,
+   `<root>/valve/telemetry`, and `<root>/valve/status` topics.
+2. Publish commands and configuration only to that controller's
+   `<root>/valve/command`.
+3. Give all HA-created `unique_id`, helper, script, automation, timer, and
+   template entity identifiers an instance-specific prefix.
+4. Resolve automation and dashboard entity references from the selected
+   instance rather than from the old unscoped `irrigation_*` entities.
+5. Keep configuration, freshness timers, cycle state, counters, alarms, and
+   history independent per instance.
+6. Reject duplicate instance IDs during HA configuration.
+
+### Migration from the legacy single-controller contract
+
+The old unscoped topics (`irrigation/valve/...` and
+`irrigation/sensor/...`) are no longer published or consumed by this firmware.
+Before flashing:
+
+1. Choose the existing controller's stable instance ID (recommended:
+   `raised_bed`) and update HA to the scoped topics.
+2. Stop automations that publish to legacy command topics.
+3. Flash the firmware and verify `<root>/valve/status` becomes `online`.
+4. Confirm HA sends `configure` to the new scoped command topic.
+5. Remove legacy retained discovery messages under
+   `homeassistant/<domain>/irrigation_*/config` that do not contain the
+   instance node level, then remove obsolete legacy entities from HA.
+
+Do not operate old and new command contracts simultaneously: doing so can
+create ambiguous valve control and duplicate entities.

@@ -1,95 +1,114 @@
 # Home Assistant — setup after backup restore
 
-What goes on the HA server:
+Multi-controller layout: every physical UNO has an `IRRIGATION_INSTANCE_ID`
+(see [schemas/mqtt_topics.md](../schemas/mqtt_topics.md)). HA packages and
+dashboards are **generated** per instance from templates.
 
 | # | Source in repo | Destination on HA | Method |
 |---|----------------|-------------------|--------|
-| 1 | `configuration.yaml` package loader (below) | `config/configuration.yaml` | edit once |
-| 2 | `homeassistant/packages/irrigation.yaml` | `config/packages/irrigation.yaml` | File Editor / Samba |
-| 3 | `homeassistant/packages/irrigation_sensors.yaml` | `config/packages/irrigation_sensors.yaml` | File Editor / Samba |
-| 4 | `homeassistant/dashboards/irrigation.yaml` | Lovelace dashboard | Raw config editor (NOT packages/) |
+| 1 | Package loader (below) | `config/configuration.yaml` | edit once |
+| 2 | `homeassistant/packages/irrigation_<id>.yaml` | `config/packages/` | File Editor / Samba |
+| 3 | `homeassistant/packages/irrigation_sensors_<id>.yaml` | `config/packages/` | File Editor / Samba |
+| 4 | `homeassistant/dashboards/irrigation_<id>.yaml` | Lovelace dashboard (one per instance) | Raw config editor (NOT packages/) |
 
-Deploy **both** package files (2 and 3) — the sensor slots (0–5), their bands,
-calibration, and settle snapshots live in `irrigation_sensors.yaml`. The
-dashboard is separate: it starts with `title:` / `views:` and must go through
-the Lovelace raw editor, never into `config/packages/`.
+Edit **templates** + `instances.yaml`, then:
+
+```bash
+python3 scripts/render_ha_instances.py
+# or just:
+./scripts/deploy-ha.sh
+```
+
+Do **not** hand-edit generated `packages/irrigation_*.yaml` or dashboards.
 
 ## configuration.yaml
 
-If you already have a `homeassistant:` block, merge the `packages:` section in.
+List every generated package (example matches `homeassistant/instances.yaml`):
 
 ```yaml
 homeassistant:
   packages:
-    irrigation: !include packages/irrigation.yaml
-    irrigation_sensors: !include packages/irrigation_sensors.yaml
+    irrigation_raised_bed: !include packages/irrigation_raised_bed.yaml
+    irrigation_sensors_raised_bed: !include packages/irrigation_sensors_raised_bed.yaml
+    irrigation_vegetable_garden: !include packages/irrigation_vegetable_garden.yaml
+    irrigation_sensors_vegetable_garden: !include packages/irrigation_sensors_vegetable_garden.yaml
 ```
 
-Both packages must be listed. Do **not** use:
+If `config/packages/` contains **only** these irrigation files, you may instead use:
 
 ```yaml
-packages: !include_dir_named packages/
+homeassistant:
+  packages: !include_dir_named packages
 ```
 
-That loads every file in `packages/` as a separate package and can cause errors
-if other files are present.
+Remove legacy unscoped files if present: `packages/irrigation.yaml`,
+`packages/irrigation_sensors.yaml`.
 
 ## MQTT broker user
 
-Create a dedicated MQTT user for the UNO (matches `firmware/src/secrets.h.example`):
+Create a dedicated MQTT user for the UNOs (matches `firmware/src/secrets.h.example`):
 
 1. **Settings → Add-ons → Mosquitto broker → Configuration** (or the Mosquitto user UI)
 2. Add user `irrigation` with a strong password
-3. Copy the same credentials into `firmware/src/secrets.h`:
+3. Copy the same credentials into each board’s `firmware/src/secrets.h`:
    - `MQTT_BROKER` — HA IP or hostname
    - `MQTT_PORT` — `1883`
    - `MQTT_USER` / `MQTT_PASSWORD`
+   - `IRRIGATION_INSTANCE_ID` — unique per board (`raised_bed`, `vegetable_garden`, …)
+   - `IRRIGATION_INSTANCE_NAME` — display name (`Raised Bed`, `Vegetable Garden`)
 
-Recommended Mosquitto add-on settings:
+Recommended Mosquitto add-on settings: Start on boot **on**, Watchdog **on**.
 
-- Start on boot: **on**
-- Watchdog: **on**
+## Migration from legacy single-controller topics
+
+Old firmware used unscoped `irrigation/valve/...` and `irrigation/sensor/...`.
+New firmware **only** uses `irrigation/<instance_id>/...`. Order matters:
+
+1. Deploy instance-scoped HA packages + dashboards (`raised_bed` for the first board).
+2. Restart Home Assistant; stop any automations still publishing to legacy command topics.
+3. Flash the first UNO with `IRRIGATION_INSTANCE_ID "raised_bed"` (name `Raised Bed`).
+4. Confirm `binary_sensor.irrigation_raised_bed_controller_online` is **on** and Sync runs.
+5. Purge legacy retained discovery under `homeassistant/<domain>/irrigation_*/config`
+   that lacks the instance node (see [mqtt_topics.md](../schemas/mqtt_topics.md)).
+6. Flash the second UNO with `vegetable_garden` / `Vegetable Garden` and Sync that dashboard.
+
+Do not run old and new command contracts at the same time.
 
 ## Deploy steps
 
-1. Restore backup in Home Assistant
-2. Deploy **both** package files:
-   - **Samba:** `HA_SMB_USER=homeassistant ./scripts/deploy-ha.sh` (copies both)
-   - **File Editor:** paste `homeassistant/packages/irrigation.yaml` and
-     `homeassistant/packages/irrigation_sensors.yaml` into `config/packages/`
-3. Confirm `configuration.yaml` matches the block above (both `!include` lines)
-4. **Developer Tools → YAML → Check configuration**
-5. **Restart Home Assistant**
-6. **Settings → Dashboards → Irrigation → Raw configuration editor** — paste `homeassistant/dashboards/irrigation.yaml`
-7. Flash UNO firmware when ready (drip limits + HA control)
+1. Restore backup in Home Assistant (if applicable)
+2. Render + deploy packages:
+   - **Samba:** `HA_SMB_USER=homeassistant ./scripts/deploy-ha.sh`
+   - **Manual:** run `python3 scripts/render_ha_instances.py`, then copy every
+     `irrigation_*.yaml` / `irrigation_sensors_*.yaml` into `config/packages/`
+3. Update `configuration.yaml` as above
+4. **Developer Tools → YAML → Check configuration** → **Restart**
+5. Create/update Lovelace dashboards — paste each
+   `homeassistant/dashboards/irrigation_<id>.yaml` via raw editor
+6. Flash UNOs with matching instance IDs ([firmware_deploy.md](../docs/firmware_deploy.md))
 
-`deploy-ha.sh` without `HA_SMB_USER` prints File Editor instructions.
-
-**Important:** The two files in `config/packages/` must start with a domain key
-(`input_select:` / `input_boolean:`) — never `title:` or `views:`. The
-`dashboards/irrigation.yaml` file (which does start with `title:`) goes only
-through the Lovelace raw editor.
+**Important:** Package files must start with a domain key (`input_select:` etc.),
+never `title:` / `views:`. Dashboard YAML goes only through the Lovelace editor.
 
 ## Verify after restart
 
-**Developer Tools → States:**
+**Developer Tools → States** (example for Raised Bed; swap id for Vegetable Garden):
 
 | Entity | Expected |
 |--------|----------|
-| `input_select.irrigation_control_mode` | your last setting (helpers now persist across restarts) |
-| `sensor.irrigation_valve_state` | `idle` |
-| `binary_sensor.irrigation_controller_online` | `on` (after UNO connects) |
-| `input_boolean.irrigation_sensor_2_enabled` … `_5_enabled` | your last setting (no longer reset on restart) |
+| `input_select.irrigation_raised_bed_control_mode` | last setting (helpers persist) |
+| `sensor.irrigation_raised_bed_valve_state` | `idle` |
+| `binary_sensor.irrigation_raised_bed_controller_online` | `on` after UNO connects |
+| `input_boolean.irrigation_raised_bed_sensor_N_enabled` | your enables |
 
-Set `irrigation_control_mode` to `auto` only after verifying a manual test cycle.
+Set control mode to `auto` only after a manual test pulse on that instance.
 
-Note: helpers no longer carry `initial:` values, so on a **brand-new** install
-(not a restore) set control mode, settle/pulse durations, per-sensor bands, and
-enable the sensor slots you use — see the header comments in both package files
-for recommended starting values.
+On a **brand-new** install (not a restore), set mode, timings, bands, and enables —
+see header comments in the templates.
 
 ## After deploy
 
-Power-cycle or reflash the UNO so MQTT Discovery republishes entity configs.
+Power-cycle or reflash each UNO so MQTT Discovery republishes under
+`homeassistant/<domain>/irrigation_<id>/...`.
 
-See also: [docs/ha_drip_control.md](../docs/ha_drip_control.md), [README.md](../README.md).
+See: [ha_drip_control.md](../docs/ha_drip_control.md), [mqtt_topics.md](../schemas/mqtt_topics.md), [README.md](../README.md).

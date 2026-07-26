@@ -1,0 +1,23 @@
+name: HA Instance Render
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "homeassistant/**"
+      - "scripts/render_ha_instances.py"
+      - ".github/workflows/ha-instance-render.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "homeassistant/**"
+      - "scripts/render_ha_instances.py"
+
+jobs:
+  check:
+    name: Generated packages up to date
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check render
+        run: python3 scripts/render_ha_instances.py --check

@@ -1,0 +1,1190 @@
+# GENERATED — do not edit by hand.
+# Instance: vegetable_garden (Vegetable Garden)
+# Source: homeassistant/templates/dashboard.yaml
+# Regenerate: python3 scripts/render_ha_instances.py
+#
+# UNSCOPED TEMPLATE — edit this file, then regenerate dashboards:
+#   python3 scripts/render_ha_instances.py
+# Paste homeassistant/dashboards/irrigation_<id>.yaml via Lovelace raw editor.
+#
+# Irrigation Lovelace dashboard — Status-first operator layout.
+# Moisture history uses stock conditional + history-graph cards (enabled sensors only).
+
+title: Vegetable Garden
+views:
+  - title: Status
+    path: irrigation-vegetable_garden
+    icon: mdi:water-pump
+    type: sections
+    sections:
+      - type: grid
+        title: Water Status
+        cards:
+          - type: markdown
+            content: >
+              ## {{ states('sensor.irrigation_vegetable_garden_water_status') }}
+
+              {% set st = states('sensor.irrigation_vegetable_garden_water_status') %}
+              {% if st == 'Watering Now' %}
+              **{{ state_attr('sensor.irrigation_vegetable_garden_water_status', 'action') }}** — {{ states('input_text.irrigation_vegetable_garden_cycle_time_remaining') }}
+              {% else %}
+              {% set lw = states('input_datetime.irrigation_vegetable_garden_pulse_started_at') %}
+              {% if lw not in ['unknown', 'unavailable', 'none', ''] %}
+              {% set dur = states('sensor.irrigation_vegetable_garden_actual_pulse_s') | int(0) %}
+              Last watered {{ relative_time(as_datetime(lw)) }} ago{% if dur > 0 %} for {{ (dur / 60) | round(1) }} min{% endif %}
+              {% else %}
+              Last watered: never
+              {% endif %}
+              {% endif %}
+
+
+              **Reason:** {{ state_attr('sensor.irrigation_vegetable_garden_water_status', 'reason') }}
+
+              _{{ state_attr('sensor.irrigation_vegetable_garden_water_status', 'resume_hint') }}_
+
+      - type: grid
+        title: Diagnostics
+        cards:
+          - type: entities
+            title: System State
+            entities:
+              - entity: input_select.irrigation_vegetable_garden_control_mode
+                name: Mode
+              - entity: binary_sensor.irrigation_vegetable_garden_controller_online
+                name: Controller
+              - entity: sensor.irrigation_vegetable_garden_auto_block_reason
+                name: Auto Status
+              - entity: sensor.irrigation_vegetable_garden_valve_state_resolved
+                name: Valve State (Resolved)
+              - entity: sensor.irrigation_vegetable_garden_valve_state
+                name: Valve Command (Firmware State)
+              - entity: binary_sensor.irrigation_vegetable_garden_valve
+                name: Valve Feedback (Open)
+              - entity: sensor.irrigation_vegetable_garden_error_code
+                name: Error Code
+
+          - type: entities
+            title: Recent Activity
+            entities:
+              - entity: input_datetime.irrigation_vegetable_garden_pulse_started_at
+                name: Last Water Event
+              - entity: sensor.irrigation_vegetable_garden_actual_pulse_min
+                name: Last Water Duration (min)
+              - entity: input_text.irrigation_vegetable_garden_last_stop_reason
+                name: Last Stop Reason
+              - entity: input_datetime.irrigation_vegetable_garden_last_settle_at
+                name: Last Settle Snapshot
+              - entity: input_text.irrigation_vegetable_garden_settle_snapshot_gaps
+                name: Settle Snapshot Coverage
+
+  - title: Moisture
+    path: irrigation-vegetable_garden-moisture
+    icon: mdi:chart-line
+    type: sections
+    sections:
+      - type: grid
+        title: Moisture History
+        cards:
+          - type: entities
+            title: Chart Filters
+            entities:
+              - entity: input_select.irrigation_vegetable_garden_chart_range
+                name: Time Range
+              - entity: input_select.irrigation_vegetable_garden_chart_sensor_mode
+                name: Sensors (gauges / future filters)
+              - entity: input_boolean.irrigation_vegetable_garden_chart_show_watering
+                name: "Overlay: Watering"
+              - entity: input_boolean.irrigation_vegetable_garden_chart_show_settle
+                name: "Overlay: Settle"
+              - entity: input_boolean.irrigation_vegetable_garden_chart_show_errors
+                name: "Overlay: Errors"
+
+          - type: markdown
+            content: >
+              History shows one graph per **enabled** sensor (Sensors tab),
+              plus optional watering / settle / error overlays. Use **Time
+              Range** to switch the window. No HACS cards required.
+
+          - type: conditional
+            conditions:
+              - condition: state
+                entity: input_select.irrigation_vegetable_garden_chart_range
+                state: "1h"
+            card:
+              type: vertical-stack
+              cards:
+                - type: conditional
+                  conditions:
+                    - condition: state
+                      entity: input_boolean.irrigation_vegetable_garden_sensor_0_enabled
+                      state: "on"
+                  card:
+                    type: history-graph
+                    title: Sensor 0 (1 h)
+                    hours_to_show: 1
+                    entities:
+                      - entity: sensor.irrigation_vegetable_garden_sensor_0_vwc
+                        name: Sensor 0
+                - type: conditional
+                  conditions:
+                    - condition: state
+                      entity: input_boolean.irrigation_vegetable_garden_sensor_1_enabled
+                      state: "on"
+                  card:
+                    type: history-graph
+                    title: Sensor 1 (1 h)
+                    hours_to_show: 1
+                    entities:
+                      - entity: sensor.irrigation_vegetable_garden_sensor_1_vwc
+                        name: Sensor 1
+                - type: conditional
+                  conditions:
+                    - condition: state
+                      entity: input_boolean.irrigation_vegetable_garden_sensor_2_enabled
+                      state: "on"
+                  card:
+                    type: history-graph
+                    title: Sensor 2 (1 h)
+                    hours_to_show: 1
+                    entities:
+                      - entity: sensor.irrigation_vegetable_garden_sensor_2_vwc
+                        name: Sensor 2
+                - type: conditional
+                  conditions:
+                    - condition: state
+                      entity: input_boolean.irrigation_vegetable_garden_sensor_3_enabled
+                      state: "on"
+                  card:
+                    type: history-graph
+                    title: Sensor 3 (1 h)
+                    hours_to_show: 1
+                    entities:
+                      - entity: sensor.irrigation_vegetable_garden_sensor_3_vwc
+                        name: Sensor 3
+                - type: conditional
+                  conditions:
+                    - condition: state
+                      entity: input_boolean.irrigation_vegetable_garden_sensor_4_enabled
+                      state: "on"
+                  card:
+                    type: history-graph
+                    title: Sensor 4 (1 h)
+                    hours_to_show: 1
+                    entities:
+                      - entity: sensor.irrigation_vegetable_garden_sensor_4_vwc
+                        name: Sensor 4
+                - type: conditional
+                  conditions:
+                    - condition: state
+                      entity: input_boolean.irrigation_vegetable_garden_sensor_5_enabled
+                      state: "on"
+                  card:
+                    type: history-graph
+                    title: Sensor 5 (1 h)
+                    hours_to_show: 1
+                    entities:
+                      - entity: sensor.irrigation_vegetable_garden_sensor_5_vwc
+                        name: Sensor 5
+                - type: conditional
+                  conditions:
+                    - condition: state
+                      entity: input_boolean.irrigation_vegetable_garden_chart_show_watering
+                      state: "on"
+                  card:
+                    type: history-graph
+                    title: Watering (1 h)
+                    hours_to_show: 1
+                    entities:
+                      - entity: binary_sensor.irrigation_vegetable_garden_is_watering
+                        name: Watering
+                - type: conditional
+                  conditions:
+                    - condition: state
+                      entity: input_boolean.irrigation_vegetable_garden_chart_show_settle
+                      state: "on"
+                  card:
+                    type: history-graph
+                    title: Settling (1 h)
+                    hours_to_show: 1
+                    entities:
+                      - entity: binary_sensor.irrigation_vegetable_garden_is_settling
+                        name: Settling
+                - type: conditional
+                  conditions:
+                    - condition: state
+                      entity: input_boolean.irrigation_vegetable_garden_chart_show_errors
+                      state: "on"
+                  card:
+                    type: history-graph
+                    title: Error (1 h)
+                    hours_to_show: 1
+                    entities:
+                      - entity: binary_sensor.irrigation_vegetable_garden_has_error
+                        name: Error
+
+          - type: conditional
+            conditions:
+              - condition: state
+                entity: input_select.irrigation_vegetable_garden_chart_range
+                state: "8h"
+            card:
+              type: vertical-stack
+              cards:
+                - type: conditional
+                  conditions:
+                    - condition: state
+                      entity: input_boolean.irrigation_vegetable_garden_sensor_0_enabled
+                      state: "on"
+                  card:
+                    type: history-graph
+                    title: Sensor 0 (8 h)
+                    hours_to_show: 8
+                    entities:
+                      - entity: sensor.irrigation_vegetable_garden_sensor_0_vwc
+                        name: Sensor 0
+                - type: conditional
+                  conditions:
+                    - condition: state
+                      entity: input_boolean.irrigation_vegetable_garden_sensor_1_enabled
+                      state: "on"
+                  card:
+                    type: history-graph
+                    title: Sensor 1 (8 h)
+                    hours_to_show: 8
+                    entities:
+                      - entity: sensor.irrigation_vegetable_garden_sensor_1_vwc
+                        name: Sensor 1
+                - type: conditional
+                  conditions:
+                    - condition: state
+                      entity: input_boolean.irrigation_vegetable_garden_sensor_2_enabled
+                      state: "on"
+                  card:
+                    type: history-graph
+                    title: Sensor 2 (8 h)
+                    hours_to_show: 8
+                    entities:
+                      - entity: sensor.irrigation_vegetable_garden_sensor_2_vwc
+                        name: Sensor 2
+                - type: conditional
+                  conditions:
+                    - condition: state
+                      entity: input_boolean.irrigation_vegetable_garden_sensor_3_enabled
+                      state: "on"
+                  card:
+                    type: history-graph
+                    title: Sensor 3 (8 h)
+                    hours_to_show: 8
+                    entities:
+                      - entity: sensor.irrigation_vegetable_garden_sensor_3_vwc
+                        name: Sensor 3
+                - type: conditional
+                  conditions:
+                    - condition: state
+                      entity: input_boolean.irrigation_vegetable_garden_sensor_4_enabled
+                      state: "on"
+                  card:
+                    type: history-graph
+                    title: Sensor 4 (8 h)
+                    hours_to_show: 8
+                    entities:
+                      - entity: sensor.irrigation_vegetable_garden_sensor_4_vwc
+                        name: Sensor 4
+                - type: conditional
+                  conditions:
+                    - condition: state
+                      entity: input_boolean.irrigation_vegetable_garden_sensor_5_enabled
+                      state: "on"
+                  card:
+                    type: history-graph
+                    title: Sensor 5 (8 h)
+                    hours_to_show: 8
+                    entities:
+                      - entity: sensor.irrigation_vegetable_garden_sensor_5_vwc
+                        name: Sensor 5
+                - type: conditional
+                  conditions:
+                    - condition: state
+                      entity: input_boolean.irrigation_vegetable_garden_chart_show_watering
+                      state: "on"
+                  card:
+                    type: history-graph
+                    title: Watering (8 h)
+                    hours_to_show: 8
+                    entities:
+                      - entity: binary_sensor.irrigation_vegetable_garden_is_watering
+                        name: Watering
+                - type: conditional
+                  conditions:
+                    - condition: state
+                      entity: input_boolean.irrigation_vegetable_garden_chart_show_settle
+                      state: "on"
+                  card:
+                    type: history-graph
+                    title: Settling (8 h)
+                    hours_to_show: 8
+                    entities:
+                      - entity: binary_sensor.irrigation_vegetable_garden_is_settling
+                        name: Settling
+                - type: conditional
+                  conditions:
+                    - condition: state
+                      entity: input_boolean.irrigation_vegetable_garden_chart_show_errors
+                      state: "on"
+                  card:
+                    type: history-graph
+                    title: Error (8 h)
+                    hours_to_show: 8
+                    entities:
+                      - entity: binary_sensor.irrigation_vegetable_garden_has_error
+                        name: Error
+
+          - type: conditional
+            conditions:
+              - condition: state
+                entity: input_select.irrigation_vegetable_garden_chart_range
+                state: "24h"
+            card:
+              type: vertical-stack
+              cards:
+                - type: conditional
+                  conditions:
+                    - condition: state
+                      entity: input_boolean.irrigation_vegetable_garden_sensor_0_enabled
+                      state: "on"
+                  card:
+                    type: history-graph
+                    title: Sensor 0 (24 h)
+                    hours_to_show: 24
+                    entities:
+                      - entity: sensor.irrigation_vegetable_garden_sensor_0_vwc
+                        name: Sensor 0
+                - type: conditional
+                  conditions:
+                    - condition: state
+                      entity: input_boolean.irrigation_vegetable_garden_sensor_1_enabled
+                      state: "on"
+                  card:
+                    type: history-graph
+                    title: Sensor 1 (24 h)
+                    hours_to_show: 24
+                    entities:
+                      - entity: sensor.irrigation_vegetable_garden_sensor_1_vwc
+                        name: Sensor 1
+                - type: conditional
+                  conditions:
+                    - condition: state
+                      entity: input_boolean.irrigation_vegetable_garden_sensor_2_enabled
+                      state: "on"
+                  card:
+                    type: history-graph
+                    title: Sensor 2 (24 h)
+                    hours_to_show: 24
+                    entities:
+                      - entity: sensor.irrigation_vegetable_garden_sensor_2_vwc
+                        name: Sensor 2
+                - type: conditional
+                  conditions:
+                    - condition: state
+                      entity: input_boolean.irrigation_vegetable_garden_sensor_3_enabled
+                      state: "on"
+                  card:
+                    type: history-graph
+                    title: Sensor 3 (24 h)
+                    hours_to_show: 24
+                    entities:
+                      - entity: sensor.irrigation_vegetable_garden_sensor_3_vwc
+                        name: Sensor 3
+                - type: conditional
+                  conditions:
+                    - condition: state
+                      entity: input_boolean.irrigation_vegetable_garden_sensor_4_enabled
+                      state: "on"
+                  card:
+                    type: history-graph
+                    title: Sensor 4 (24 h)
+                    hours_to_show: 24
+                    entities:
+                      - entity: sensor.irrigation_vegetable_garden_sensor_4_vwc
+                        name: Sensor 4
+                - type: conditional
+                  conditions:
+                    - condition: state
+                      entity: input_boolean.irrigation_vegetable_garden_sensor_5_enabled
+                      state: "on"
+                  card:
+                    type: history-graph
+                    title: Sensor 5 (24 h)
+                    hours_to_show: 24
+                    entities:
+                      - entity: sensor.irrigation_vegetable_garden_sensor_5_vwc
+                        name: Sensor 5
+                - type: conditional
+                  conditions:
+                    - condition: state
+                      entity: input_boolean.irrigation_vegetable_garden_chart_show_watering
+                      state: "on"
+                  card:
+                    type: history-graph
+                    title: Watering (24 h)
+                    hours_to_show: 24
+                    entities:
+                      - entity: binary_sensor.irrigation_vegetable_garden_is_watering
+                        name: Watering
+                - type: conditional
+                  conditions:
+                    - condition: state
+                      entity: input_boolean.irrigation_vegetable_garden_chart_show_settle
+                      state: "on"
+                  card:
+                    type: history-graph
+                    title: Settling (24 h)
+                    hours_to_show: 24
+                    entities:
+                      - entity: binary_sensor.irrigation_vegetable_garden_is_settling
+                        name: Settling
+                - type: conditional
+                  conditions:
+                    - condition: state
+                      entity: input_boolean.irrigation_vegetable_garden_chart_show_errors
+                      state: "on"
+                  card:
+                    type: history-graph
+                    title: Error (24 h)
+                    hours_to_show: 24
+                    entities:
+                      - entity: binary_sensor.irrigation_vegetable_garden_has_error
+                        name: Error
+
+          - type: conditional
+            conditions:
+              - condition: state
+                entity: input_select.irrigation_vegetable_garden_chart_range
+                state: "3d"
+            card:
+              type: vertical-stack
+              cards:
+                - type: conditional
+                  conditions:
+                    - condition: state
+                      entity: input_boolean.irrigation_vegetable_garden_sensor_0_enabled
+                      state: "on"
+                  card:
+                    type: history-graph
+                    title: Sensor 0 (3 d)
+                    hours_to_show: 72
+                    entities:
+                      - entity: sensor.irrigation_vegetable_garden_sensor_0_vwc
+                        name: Sensor 0
+                - type: conditional
+                  conditions:
+                    - condition: state
+                      entity: input_boolean.irrigation_vegetable_garden_sensor_1_enabled
+                      state: "on"
+                  card:
+                    type: history-graph
+                    title: Sensor 1 (3 d)
+                    hours_to_show: 72
+                    entities:
+                      - entity: sensor.irrigation_vegetable_garden_sensor_1_vwc
+                        name: Sensor 1
+                - type: conditional
+                  conditions:
+                    - condition: state
+                      entity: input_boolean.irrigation_vegetable_garden_sensor_2_enabled
+                      state: "on"
+                  card:
+                    type: history-graph
+                    title: Sensor 2 (3 d)
+                    hours_to_show: 72
+                    entities:
+                      - entity: sensor.irrigation_vegetable_garden_sensor_2_vwc
+                        name: Sensor 2
+                - type: conditional
+                  conditions:
+                    - condition: state
+                      entity: input_boolean.irrigation_vegetable_garden_sensor_3_enabled
+                      state: "on"
+                  card:
+                    type: history-graph
+                    title: Sensor 3 (3 d)
+                    hours_to_show: 72
+                    entities:
+                      - entity: sensor.irrigation_vegetable_garden_sensor_3_vwc
+                        name: Sensor 3
+                - type: conditional
+                  conditions:
+                    - condition: state
+                      entity: input_boolean.irrigation_vegetable_garden_sensor_4_enabled
+                      state: "on"
+                  card:
+                    type: history-graph
+                    title: Sensor 4 (3 d)
+                    hours_to_show: 72
+                    entities:
+                      - entity: sensor.irrigation_vegetable_garden_sensor_4_vwc
+                        name: Sensor 4
+                - type: conditional
+                  conditions:
+                    - condition: state
+                      entity: input_boolean.irrigation_vegetable_garden_sensor_5_enabled
+                      state: "on"
+                  card:
+                    type: history-graph
+                    title: Sensor 5 (3 d)
+                    hours_to_show: 72
+                    entities:
+                      - entity: sensor.irrigation_vegetable_garden_sensor_5_vwc
+                        name: Sensor 5
+                - type: conditional
+                  conditions:
+                    - condition: state
+                      entity: input_boolean.irrigation_vegetable_garden_chart_show_watering
+                      state: "on"
+                  card:
+                    type: history-graph
+                    title: Watering (3 d)
+                    hours_to_show: 72
+                    entities:
+                      - entity: binary_sensor.irrigation_vegetable_garden_is_watering
+                        name: Watering
+                - type: conditional
+                  conditions:
+                    - condition: state
+                      entity: input_boolean.irrigation_vegetable_garden_chart_show_settle
+                      state: "on"
+                  card:
+                    type: history-graph
+                    title: Settling (3 d)
+                    hours_to_show: 72
+                    entities:
+                      - entity: binary_sensor.irrigation_vegetable_garden_is_settling
+                        name: Settling
+                - type: conditional
+                  conditions:
+                    - condition: state
+                      entity: input_boolean.irrigation_vegetable_garden_chart_show_errors
+                      state: "on"
+                  card:
+                    type: history-graph
+                    title: Error (3 d)
+                    hours_to_show: 72
+                    entities:
+                      - entity: binary_sensor.irrigation_vegetable_garden_has_error
+                        name: Error
+
+          - type: conditional
+            conditions:
+              - condition: state
+                entity: input_select.irrigation_vegetable_garden_chart_range
+                state: "7d"
+            card:
+              type: vertical-stack
+              cards:
+                - type: conditional
+                  conditions:
+                    - condition: state
+                      entity: input_boolean.irrigation_vegetable_garden_sensor_0_enabled
+                      state: "on"
+                  card:
+                    type: history-graph
+                    title: Sensor 0 (7 d)
+                    hours_to_show: 168
+                    entities:
+                      - entity: sensor.irrigation_vegetable_garden_sensor_0_vwc
+                        name: Sensor 0
+                - type: conditional
+                  conditions:
+                    - condition: state
+                      entity: input_boolean.irrigation_vegetable_garden_sensor_1_enabled
+                      state: "on"
+                  card:
+                    type: history-graph
+                    title: Sensor 1 (7 d)
+                    hours_to_show: 168
+                    entities:
+                      - entity: sensor.irrigation_vegetable_garden_sensor_1_vwc
+                        name: Sensor 1
+                - type: conditional
+                  conditions:
+                    - condition: state
+                      entity: input_boolean.irrigation_vegetable_garden_sensor_2_enabled
+                      state: "on"
+                  card:
+                    type: history-graph
+                    title: Sensor 2 (7 d)
+                    hours_to_show: 168
+                    entities:
+                      - entity: sensor.irrigation_vegetable_garden_sensor_2_vwc
+                        name: Sensor 2
+                - type: conditional
+                  conditions:
+                    - condition: state
+                      entity: input_boolean.irrigation_vegetable_garden_sensor_3_enabled
+                      state: "on"
+                  card:
+                    type: history-graph
+                    title: Sensor 3 (7 d)
+                    hours_to_show: 168
+                    entities:
+                      - entity: sensor.irrigation_vegetable_garden_sensor_3_vwc
+                        name: Sensor 3
+                - type: conditional
+                  conditions:
+                    - condition: state
+                      entity: input_boolean.irrigation_vegetable_garden_sensor_4_enabled
+                      state: "on"
+                  card:
+                    type: history-graph
+                    title: Sensor 4 (7 d)
+                    hours_to_show: 168
+                    entities:
+                      - entity: sensor.irrigation_vegetable_garden_sensor_4_vwc
+                        name: Sensor 4
+                - type: conditional
+                  conditions:
+                    - condition: state
+                      entity: input_boolean.irrigation_vegetable_garden_sensor_5_enabled
+                      state: "on"
+                  card:
+                    type: history-graph
+                    title: Sensor 5 (7 d)
+                    hours_to_show: 168
+                    entities:
+                      - entity: sensor.irrigation_vegetable_garden_sensor_5_vwc
+                        name: Sensor 5
+                - type: conditional
+                  conditions:
+                    - condition: state
+                      entity: input_boolean.irrigation_vegetable_garden_chart_show_watering
+                      state: "on"
+                  card:
+                    type: history-graph
+                    title: Watering (7 d)
+                    hours_to_show: 168
+                    entities:
+                      - entity: binary_sensor.irrigation_vegetable_garden_is_watering
+                        name: Watering
+                - type: conditional
+                  conditions:
+                    - condition: state
+                      entity: input_boolean.irrigation_vegetable_garden_chart_show_settle
+                      state: "on"
+                  card:
+                    type: history-graph
+                    title: Settling (7 d)
+                    hours_to_show: 168
+                    entities:
+                      - entity: binary_sensor.irrigation_vegetable_garden_is_settling
+                        name: Settling
+                - type: conditional
+                  conditions:
+                    - condition: state
+                      entity: input_boolean.irrigation_vegetable_garden_chart_show_errors
+                      state: "on"
+                  card:
+                    type: history-graph
+                    title: Error (7 d)
+                    hours_to_show: 168
+                    entities:
+                      - entity: binary_sensor.irrigation_vegetable_garden_has_error
+                        name: Error
+
+      - type: grid
+        title: Sensor Gauges
+        cards:
+          - type: conditional
+            conditions:
+              - condition: state
+                entity: input_boolean.irrigation_vegetable_garden_sensor_0_enabled
+                state: "on"
+            card:
+              type: gauge
+              name: Sensor 0
+              entity: sensor.irrigation_vegetable_garden_sensor_0_vwc
+              unit: "%"
+              min: 0
+              max: 60
+
+          - type: conditional
+            conditions:
+              - condition: state
+                entity: input_boolean.irrigation_vegetable_garden_sensor_1_enabled
+                state: "on"
+            card:
+              type: gauge
+              name: Sensor 1
+              entity: sensor.irrigation_vegetable_garden_sensor_1_vwc
+              unit: "%"
+              min: 0
+              max: 60
+
+          - type: conditional
+            conditions:
+              - condition: state
+                entity: input_boolean.irrigation_vegetable_garden_sensor_2_enabled
+                state: "on"
+            card:
+              type: gauge
+              name: Sensor 2
+              entity: sensor.irrigation_vegetable_garden_sensor_2_vwc
+              unit: "%"
+              min: 0
+              max: 60
+
+          - type: conditional
+            conditions:
+              - condition: state
+                entity: input_boolean.irrigation_vegetable_garden_sensor_3_enabled
+                state: "on"
+            card:
+              type: gauge
+              name: Sensor 3
+              entity: sensor.irrigation_vegetable_garden_sensor_3_vwc
+              unit: "%"
+              min: 0
+              max: 60
+
+          - type: conditional
+            conditions:
+              - condition: state
+                entity: input_boolean.irrigation_vegetable_garden_sensor_4_enabled
+                state: "on"
+            card:
+              type: gauge
+              name: Sensor 4
+              entity: sensor.irrigation_vegetable_garden_sensor_4_vwc
+              unit: "%"
+              min: 0
+              max: 60
+
+          - type: conditional
+            conditions:
+              - condition: state
+                entity: input_boolean.irrigation_vegetable_garden_sensor_5_enabled
+                state: "on"
+            card:
+              type: gauge
+              name: Sensor 5
+              entity: sensor.irrigation_vegetable_garden_sensor_5_vwc
+              unit: "%"
+              min: 0
+              max: 60
+
+  - title: Controls
+    path: irrigation-vegetable_garden-controls
+    icon: mdi:tune
+    type: sections
+    sections:
+      - type: grid
+        title: Manual Controls
+        cards:
+          - type: grid
+            columns: 2
+            square: false
+            cards:
+              - type: button
+                name: Pulse
+                icon: mdi:water
+                show_name: true
+                show_icon: true
+                tap_action:
+                  action: perform-action
+                  perform_action: script.turn_on
+                  target:
+                    entity_id: script.irrigation_vegetable_garden_request_pulse
+              - type: button
+                name: Close
+                icon: mdi:stop-circle
+                show_name: true
+                show_icon: true
+                tap_action:
+                  action: perform-action
+                  perform_action: script.turn_on
+                  target:
+                    entity_id: script.irrigation_vegetable_garden_manual_close
+              - type: button
+                name: Clear Fault
+                icon: mdi:alert-remove-outline
+                show_name: true
+                show_icon: true
+                tap_action:
+                  action: perform-action
+                  perform_action: script.turn_on
+                  target:
+                    entity_id: script.irrigation_vegetable_garden_clear_fault
+              - type: button
+                name: Sync
+                icon: mdi:sync
+                show_name: true
+                show_icon: true
+                tap_action:
+                  action: perform-action
+                  perform_action: script.turn_on
+                  target:
+                    entity_id: script.irrigation_vegetable_garden_sync_firmware
+
+          - type: markdown
+            content: |
+              **Auto rule:** if any enabled sensor falls below its minimum and the valve is idle, Home Assistant requests a pulse.
+
+              **Pulse size:** scaled from moisture deficit between each sensor's **min** and **target**.
+
+              Pulse and Close will show a notification if the command is blocked (e.g. controller offline).
+
+      - type: grid
+        title: Irrigation Timing
+        cards:
+          - type: entities
+            title: Timing
+            entities:
+              - entity: input_number.irrigation_vegetable_garden_min_pulse_min
+                name: Min Pulse (min)
+              - entity: input_number.irrigation_vegetable_garden_max_pulse_min
+                name: Max Pulse (min)
+              - entity: input_number.irrigation_vegetable_garden_settle_min
+                name: Settle (min)
+              - entity: input_number.irrigation_vegetable_garden_failsafe_disconnect_min
+                name: MQTT Failsafe (min)
+
+      - type: grid
+        title: Active Sensor Targets
+        cards:
+          - type: button
+            name: Sync All to Sensor 0
+            icon: mdi:content-copy
+            show_name: true
+            show_icon: true
+            tap_action:
+              action: perform-action
+              perform_action: script.turn_on
+              target:
+                entity_id: script.irrigation_vegetable_garden_sync_targets_to_sensor0
+              confirmation:
+                text: Copy Sensor 0's min/target/max to every other enabled sensor?
+
+          - type: grid
+            columns: 2
+            square: false
+            cards:
+              - type: conditional
+                conditions:
+                  - condition: state
+                    entity: input_boolean.irrigation_vegetable_garden_sensor_0_enabled
+                    state: "on"
+                card:
+                  type: entities
+                  title: Sensor 0
+                  entities:
+                    - entity: input_number.irrigation_vegetable_garden_sensor0_min_vwc
+                      name: Min
+                    - entity: input_number.irrigation_vegetable_garden_sensor0_target_vwc
+                      name: Target
+                    - entity: input_number.irrigation_vegetable_garden_sensor0_max_vwc
+                      name: Max
+
+              - type: conditional
+                conditions:
+                  - condition: state
+                    entity: input_boolean.irrigation_vegetable_garden_sensor_1_enabled
+                    state: "on"
+                card:
+                  type: entities
+                  title: Sensor 1
+                  entities:
+                    - entity: input_number.irrigation_vegetable_garden_sensor1_min_vwc
+                      name: Min
+                    - entity: input_number.irrigation_vegetable_garden_sensor1_target_vwc
+                      name: Target
+                    - entity: input_number.irrigation_vegetable_garden_sensor1_max_vwc
+                      name: Max
+
+              - type: conditional
+                conditions:
+                  - condition: state
+                    entity: input_boolean.irrigation_vegetable_garden_sensor_2_enabled
+                    state: "on"
+                card:
+                  type: entities
+                  title: Sensor 2
+                  entities:
+                    - entity: input_number.irrigation_vegetable_garden_sensor2_min_vwc
+                      name: Min
+                    - entity: input_number.irrigation_vegetable_garden_sensor2_target_vwc
+                      name: Target
+                    - entity: input_number.irrigation_vegetable_garden_sensor2_max_vwc
+                      name: Max
+
+              - type: conditional
+                conditions:
+                  - condition: state
+                    entity: input_boolean.irrigation_vegetable_garden_sensor_3_enabled
+                    state: "on"
+                card:
+                  type: entities
+                  title: Sensor 3
+                  entities:
+                    - entity: input_number.irrigation_vegetable_garden_sensor3_min_vwc
+                      name: Min
+                    - entity: input_number.irrigation_vegetable_garden_sensor3_target_vwc
+                      name: Target
+                    - entity: input_number.irrigation_vegetable_garden_sensor3_max_vwc
+                      name: Max
+
+              - type: conditional
+                conditions:
+                  - condition: state
+                    entity: input_boolean.irrigation_vegetable_garden_sensor_4_enabled
+                    state: "on"
+                card:
+                  type: entities
+                  title: Sensor 4
+                  entities:
+                    - entity: input_number.irrigation_vegetable_garden_sensor4_min_vwc
+                      name: Min
+                    - entity: input_number.irrigation_vegetable_garden_sensor4_target_vwc
+                      name: Target
+                    - entity: input_number.irrigation_vegetable_garden_sensor4_max_vwc
+                      name: Max
+
+              - type: conditional
+                conditions:
+                  - condition: state
+                    entity: input_boolean.irrigation_vegetable_garden_sensor_5_enabled
+                    state: "on"
+                card:
+                  type: entities
+                  title: Sensor 5
+                  entities:
+                    - entity: input_number.irrigation_vegetable_garden_sensor5_min_vwc
+                      name: Min
+                    - entity: input_number.irrigation_vegetable_garden_sensor5_target_vwc
+                      name: Target
+                    - entity: input_number.irrigation_vegetable_garden_sensor5_max_vwc
+                      name: Max
+
+  - title: Sensors
+    path: irrigation-vegetable_garden-sensors
+    icon: mdi:water-percent
+    type: sections
+    sections:
+      - type: grid
+        title: Sensor Slots
+        cards:
+          - type: entities
+            title: Enable & Label
+            show_header_toggle: false
+            entities:
+              - entity: input_boolean.irrigation_vegetable_garden_sensor_0_enabled
+                name: S0 Enabled (A0)
+              - entity: input_text.irrigation_vegetable_garden_sensor_0_label
+                name: S0 Label
+              - entity: input_boolean.irrigation_vegetable_garden_sensor_1_enabled
+                name: S1 Enabled (A1)
+              - entity: input_text.irrigation_vegetable_garden_sensor_1_label
+                name: S1 Label
+              - entity: input_boolean.irrigation_vegetable_garden_sensor_2_enabled
+                name: S2 Enabled (A2)
+              - entity: input_text.irrigation_vegetable_garden_sensor_2_label
+                name: S2 Label
+              - entity: input_boolean.irrigation_vegetable_garden_sensor_3_enabled
+                name: S3 Enabled (A3)
+              - entity: input_text.irrigation_vegetable_garden_sensor_3_label
+                name: S3 Label
+              - entity: input_boolean.irrigation_vegetable_garden_sensor_4_enabled
+                name: S4 Enabled (A4)
+              - entity: input_text.irrigation_vegetable_garden_sensor_4_label
+                name: S4 Label
+              - entity: input_boolean.irrigation_vegetable_garden_sensor_5_enabled
+                name: S5 Enabled (A5)
+              - entity: input_text.irrigation_vegetable_garden_sensor_5_label
+                name: S5 Label
+
+      - type: grid
+        title: Calibration
+        cards:
+          - type: conditional
+            conditions:
+              - condition: state
+                entity: input_boolean.irrigation_vegetable_garden_sensor_0_enabled
+                state: "on"
+            card:
+              type: entities
+              title: Sensor 0
+              entities:
+                - entity: sensor.irrigation_vegetable_garden_sensor_0_vwc_raw
+                  name: Raw VWC
+                - entity: sensor.irrigation_vegetable_garden_sensor_0_voltage
+                  name: Signal V
+                - entity: sensor.irrigation_vegetable_garden_sensor_0_vwc
+                  name: Calibrated VWC
+                - entity: input_number.irrigation_vegetable_garden_sensor0_vwc_scale
+                  name: Scale
+                - entity: input_number.irrigation_vegetable_garden_sensor0_vwc_offset
+                  name: Offset
+
+          - type: conditional
+            conditions:
+              - condition: state
+                entity: input_boolean.irrigation_vegetable_garden_sensor_1_enabled
+                state: "on"
+            card:
+              type: entities
+              title: Sensor 1
+              entities:
+                - entity: sensor.irrigation_vegetable_garden_sensor_1_vwc_raw
+                  name: Raw VWC
+                - entity: sensor.irrigation_vegetable_garden_sensor_1_voltage
+                  name: Signal V
+                - entity: sensor.irrigation_vegetable_garden_sensor_1_vwc
+                  name: Calibrated VWC
+                - entity: input_number.irrigation_vegetable_garden_sensor1_vwc_scale
+                  name: Scale
+                - entity: input_number.irrigation_vegetable_garden_sensor1_vwc_offset
+                  name: Offset
+
+          - type: conditional
+            conditions:
+              - condition: state
+                entity: input_boolean.irrigation_vegetable_garden_sensor_2_enabled
+                state: "on"
+            card:
+              type: entities
+              title: Sensor 2
+              entities:
+                - entity: sensor.irrigation_vegetable_garden_sensor_2_vwc_raw
+                - entity: sensor.irrigation_vegetable_garden_sensor_2_voltage
+                - entity: sensor.irrigation_vegetable_garden_sensor_2_vwc
+                - entity: input_number.irrigation_vegetable_garden_sensor2_vwc_scale
+                - entity: input_number.irrigation_vegetable_garden_sensor2_vwc_offset
+
+          - type: conditional
+            conditions:
+              - condition: state
+                entity: input_boolean.irrigation_vegetable_garden_sensor_3_enabled
+                state: "on"
+            card:
+              type: entities
+              title: Sensor 3
+              entities:
+                - entity: sensor.irrigation_vegetable_garden_sensor_3_vwc_raw
+                - entity: sensor.irrigation_vegetable_garden_sensor_3_voltage
+                - entity: sensor.irrigation_vegetable_garden_sensor_3_vwc
+                - entity: input_number.irrigation_vegetable_garden_sensor3_vwc_scale
+                - entity: input_number.irrigation_vegetable_garden_sensor3_vwc_offset
+
+          - type: conditional
+            conditions:
+              - condition: state
+                entity: input_boolean.irrigation_vegetable_garden_sensor_4_enabled
+                state: "on"
+            card:
+              type: entities
+              title: Sensor 4
+              entities:
+                - entity: sensor.irrigation_vegetable_garden_sensor_4_vwc_raw
+                - entity: sensor.irrigation_vegetable_garden_sensor_4_voltage
+                - entity: sensor.irrigation_vegetable_garden_sensor_4_vwc
+                - entity: input_number.irrigation_vegetable_garden_sensor4_vwc_scale
+                - entity: input_number.irrigation_vegetable_garden_sensor4_vwc_offset
+
+          - type: conditional
+            conditions:
+              - condition: state
+                entity: input_boolean.irrigation_vegetable_garden_sensor_5_enabled
+                state: "on"
+            card:
+              type: entities
+              title: Sensor 5
+              entities:
+                - entity: sensor.irrigation_vegetable_garden_sensor_5_vwc_raw
+                - entity: sensor.irrigation_vegetable_garden_sensor_5_voltage
+                - entity: sensor.irrigation_vegetable_garden_sensor_5_vwc
+                - entity: input_number.irrigation_vegetable_garden_sensor5_vwc_scale
+                - entity: input_number.irrigation_vegetable_garden_sensor5_vwc_offset
+
+  - title: Advanced
+    path: irrigation-vegetable_garden-advanced
+    icon: mdi:tools
+    type: sections
+    sections:
+      - type: grid
+        title: Probe Tools
+        cards:
+          - type: markdown
+            title: Probe Parity Check
+            content: |
+              **1. Reset both probes** (Scale=1, Offset=0). Bury two enabled probes side-by-side in moist soil; wait 1 min.
+
+              **2. Compare Raw VWC and Signal V.** Same algorithm and ADC reference for all slots, so a gap here points to hardware more than math.
+
+              **3. Swap test:** swap only the signal wires between two slots. If the bad reading follows the probe, it is the probe or the connection. If it stays on the slot, it is wiring to that input.
+
+              **4. Align:** use the buttons below to match two probes before moving them back into the bed.
+
+          - type: grid
+            title: Align Probes
+            columns: 2
+            square: false
+            cards:
+              - type: button
+                name: S0 → S1
+                icon: mdi:arrow-right-bold
+                tap_action:
+                  action: perform-action
+                  perform_action: script.turn_on
+                  target:
+                    entity_id: script.irrigation_vegetable_garden_calibrate_sensor0_to_sensor1
+              - type: button
+                name: S1 → S0
+                icon: mdi:arrow-left-bold
+                tap_action:
+                  action: perform-action
+                  perform_action: script.turn_on
+                  target:
+                    entity_id: script.irrigation_vegetable_garden_calibrate_sensor1_to_sensor0
+              - type: button
+                name: Reset S0
+                icon: mdi:restore
+                tap_action:
+                  action: perform-action
+                  perform_action: script.turn_on
+                  target:
+                    entity_id: script.irrigation_vegetable_garden_reset_sensor0_calibration
+              - type: button
+                name: Reset S1
+                icon: mdi:restore
+                tap_action:
+                  action: perform-action
+                  perform_action: script.turn_on
+                  target:
+                    entity_id: script.irrigation_vegetable_garden_reset_sensor1_calibration
+
+      - type: grid
+        title: Snapshot Data
+        cards:
+          - type: entities
+            title: Last Settle Values
+            entities:
+              - entity: input_number.irrigation_vegetable_garden_last_settle_s0_vwc
+                name: S0
+              - entity: input_number.irrigation_vegetable_garden_last_settle_s1_vwc
+                name: S1
+              - entity: input_number.irrigation_vegetable_garden_last_settle_s2_vwc
+                name: S2
+              - entity: input_number.irrigation_vegetable_garden_last_settle_s3_vwc
+                name: S3
+              - entity: input_number.irrigation_vegetable_garden_last_settle_s4_vwc
+                name: S4
+              - entity: input_number.irrigation_vegetable_garden_last_settle_s5_vwc
+                name: S5
+              - entity: input_datetime.irrigation_vegetable_garden_last_settle_at
+                name: Recorded At
+              - entity: input_text.irrigation_vegetable_garden_settle_snapshot_gaps
+                name: Coverage
+
+          - type: markdown
+            content: |
+              This tab keeps the prototype instrumentation available without crowding normal operation.
+
+              If you later want an even leaner grower dashboard, this is the first tab to prune.

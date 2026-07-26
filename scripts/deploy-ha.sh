@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# Deploy irrigation HA package and dashboard to a Home Assistant host.
+# Deploy irrigation HA packages and print dashboard paste instructions.
 #
 # Usage:
 #   ./scripts/deploy-ha.sh                          # print File Editor instructions
 #   HA_HOST=10.0.0.110 HA_SMB_USER=homeassistant ./scripts/deploy-ha.sh
 #
+# Regenerates instance-scoped packages from templates + instances.yaml first.
 # Samba (HA Samba add-on) must be enabled for copy mode.
 
 set -euo pipefail
@@ -20,13 +21,43 @@ cleanup_mount() {
   rmdir "$mount" 2>/dev/null || true
 }
 
+render_instances() {
+  python3 "$ROOT/scripts/render_ha_instances.py"
+}
+
+package_files() {
+  local packages_dir="$ROOT/homeassistant/packages"
+  # Main packages first, then sensor packages (avoid double-listing via irrigation_*.yaml)
+  ls -1 "$packages_dir"/irrigation_*.yaml 2>/dev/null | grep -v '/irrigation_sensors_' || true
+  ls -1 "$packages_dir"/irrigation_sensors_*.yaml 2>/dev/null || true
+}
+
+dashboard_files() {
+  ls -1 "$ROOT/homeassistant/dashboards"/irrigation_*.yaml 2>/dev/null
+}
+
 copy_packages() {
   local dest_root="$1"
   local packages_dir="$dest_root/packages"
   mkdir -p "$packages_dir"
-  cp "$ROOT/homeassistant/packages/irrigation.yaml" "$packages_dir/irrigation.yaml"
-  cp "$ROOT/homeassistant/packages/irrigation_sensors.yaml" "$packages_dir/irrigation_sensors.yaml"
-  echo "Copied packages to $packages_dir/irrigation.yaml and irrigation_sensors.yaml"
+
+  # Remove legacy unscoped package names that would fight the new contract
+  rm -f "$packages_dir/irrigation.yaml" "$packages_dir/irrigation_sensors.yaml"
+
+  local f
+  while IFS= read -r f; do
+    cp "$f" "$packages_dir/$(basename "$f")"
+    echo "Copied $(basename "$f") → $packages_dir/"
+  done < <(package_files)
+
+  echo
+  echo "Dashboards (paste via HA raw config editor — NOT into packages/):"
+  while IFS= read -r f; do
+    echo "  $(basename "$f")  ←  $f"
+  done < <(dashboard_files)
+  echo
+  echo "Then: Developer Tools → YAML → Check configuration → Restart Home Assistant."
+  echo "Flash each UNO with matching IRRIGATION_INSTANCE_ID (see docs/firmware_deploy.md)."
 }
 
 resolve_share_root() {
@@ -67,9 +98,6 @@ copy_via_samba() {
     return 1
   fi
   copy_packages "$(resolve_share_root "$mount")"
-  echo "NOTE: Deploy irrigation.yaml only — NOT dashboards/irrigation.yaml (that file has title:/views:)"
-  echo "Dashboard: paste $ROOT/homeassistant/dashboards/irrigation.yaml via HA raw config editor"
-  echo "Then restart Home Assistant."
 }
 
 copy_via_mount_path() {
@@ -81,10 +109,9 @@ copy_via_mount_path() {
     return 1
   fi
   copy_packages "$share_root"
-  echo "Copied via mounted share at $share_root"
-  echo "Dashboard: paste $ROOT/homeassistant/dashboards/irrigation.yaml via HA raw config editor"
-  echo "Then restart Home Assistant."
 }
+
+render_instances
 
 if [[ -n "$HA_MOUNT_PATH" ]]; then
   copy_via_mount_path
@@ -92,24 +119,41 @@ elif [[ -n "${HA_SMB_USER:-}" ]]; then
   copy_via_samba
 else
   cat <<EOF
-Deploy irrigation config to Home Assistant at http://${HA_HOST}:8123
+Deploy multi-controller irrigation config to Home Assistant at http://${HA_HOST}:8123
+
+Instances are listed in homeassistant/instances.yaml (currently: raised_bed, vegetable_garden).
+Regenerate after editing templates:
+
+  python3 ${ROOT}/scripts/render_ha_instances.py
 
 1. File Editor → config/packages/
-   Paste contents from:
-   ${ROOT}/homeassistant/packages/irrigation.yaml
-   ${ROOT}/homeassistant/packages/irrigation_sensors.yaml
+   Copy EVERY generated package (and delete legacy unscoped names):
+EOF
+  while IFS= read -r f; do
+    echo "   - $(basename "$f")"
+  done < <(package_files)
+  cat <<EOF
 
-   IMPORTANT: Deploy BOTH package files. This is NOT the dashboard file.
+   Remove if present: irrigation.yaml, irrigation_sensors.yaml (legacy unscoped).
 
-2. Settings → Dashboards → Irrigation → Raw configuration editor
-   Paste contents from:
-   ${ROOT}/homeassistant/dashboards/irrigation.yaml
+   IMPORTANT: Do NOT put dashboard YAML in packages/ (those files start with title:/views:).
 
-   Moisture history needs HACS auto-entities (enabled sensors only on the chart).
+2. Settings → Dashboards — create or update one dashboard per instance.
+   Paste raw YAML from:
+EOF
+  while IFS= read -r f; do
+    echo "   - $f"
+  done < <(dashboard_files)
+  cat <<EOF
 
 3. Developer Tools → YAML → Check configuration, then Restart Home Assistant
 
-See homeassistant/SETUP_AFTER_RESTORE.md for the full post-backup-restore checklist.
+4. Flash each UNO with matching secrets:
+     IRRIGATION_INSTANCE_ID / IRRIGATION_INSTANCE_NAME
+   Existing controller → id "raised_bed". Second board → "vegetable_garden".
+   See docs/firmware_deploy.md and schemas/mqtt_topics.md (migration).
+
+See homeassistant/SETUP_AFTER_RESTORE.md for the full checklist.
 
 Optional Samba copy:
   HA_SMB_USER=homeassistant ${0}
@@ -119,7 +163,5 @@ Optional copy to an already-mounted Finder share:
 
 If the files should land in a subfolder inside the share:
   HA_SMB_SUBDIR=config HA_MOUNT_PATH=/Volumes/${SMB_SHARE} ${0}
-
-After restart, power-cycle or reflash the UNO so MQTT discovery republishes.
 EOF
 fi

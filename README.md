@@ -20,6 +20,7 @@ Home Assistant integration, and an AI parameter-tuning layer.
 | — | [schemas/mqtt_topics.md](schemas/mqtt_topics.md) | MQTT topic reference |
 | — | [schemas/irrigation_cycle_log.md](schemas/irrigation_cycle_log.md) | Cycle event schema |
 | — | [homeassistant/SETUP_AFTER_RESTORE.md](homeassistant/SETUP_AFTER_RESTORE.md) | Post-restore HA checklist |
+| — | [docs/firmware_deploy.md](docs/firmware_deploy.md) | Flash UNO via VS Code + PlatformIO |
 
 ## Architecture
 
@@ -63,12 +64,14 @@ On-device auto-trigger is **off by default**; `firmware_fallback` is emergency-o
 
 ## Firmware Setup
 
+Full guide: [docs/firmware_deploy.md](docs/firmware_deploy.md).
+
 ```bash
 # 1. Install PlatformIO (VS Code extension or CLI)
 
 # 2. Copy secrets template
 cp firmware/src/secrets.h.example firmware/src/secrets.h
-# Edit secrets.h with your WiFi + MQTT credentials
+# Edit: WiFi, MQTT, IRRIGATION_INSTANCE_ID, IRRIGATION_INSTANCE_NAME
 
 # 3. Build and upload (UNO connected via USB)
 cd firmware
@@ -78,165 +81,126 @@ pio run -e uno_r4_wifi -t upload
 pio device monitor
 ```
 
-On boot you should see `MQTT connected` and telemetry log lines every 10 s.
-Topics use `irrigation/sensor/<id>/…` and `irrigation/valve/…`.
+On boot you should see `MQTT connected` and telemetry under
+`irrigation/<instance_id>/…`.
 
 ## MQTT Topics
 
-See [schemas/mqtt_topics.md](schemas/mqtt_topics.md) for the full schema.
+See [schemas/mqtt_topics.md](schemas/mqtt_topics.md) for the multi-controller schema.
 
-Quick reference:
+Quick reference (`<root>` = `irrigation/<instance_id>`):
 
 | Topic | Direction | Content |
 |---|---|---|
-| `irrigation/sensor/<id>/telemetry` | Device → HA | VWC reading per sensor |
-| `irrigation/sensor/<id>/config` | HA → Device | Per-sensor dry threshold (`resume_vwc`) |
-| `irrigation/valve/telemetry` | Device → HA | Valve state, runtime counters, fault |
-| `irrigation/valve/command` | HA → Device | `pulse`, `close`, `clear_fault`, `configure` |
-| `irrigation/valve/status` | Device → HA | `online` / `offline` (retained, LWT) |
+| `<root>/sensor/<n>/telemetry` | Device → HA | VWC reading per sensor |
+| `<root>/valve/telemetry` | Device → HA | Valve state, pulse metrics, fault |
+| `<root>/valve/command` | HA → Device | `pulse`, `close`, `clear_fault`, `configure` |
+| `<root>/valve/status` | Device → HA | `online` / `offline` (retained, LWT) |
 
 ## Safety Limits
 
 Operational limits are **Home Assistant sliders** pushed via MQTT `configure`.
-Firmware enforces budgets (E002/E003) and a hardware stuck-valve cap (E001, 24 h).
+Firmware enforces a hardware stuck-valve cap (E001, 24 h) and the configured
+max pulse / settle / MQTT failsafe.
 
-| Limit | Package default | Notes |
+| Limit | Typical HA default | Notes |
 |---|---|---|
-| Duration (pulse) | 60 min | Per-cycle run length |
-| Max single run | 360 min | Firmware cap per pulse; set ≥ duration |
-| Per hour | 60 min | **Cumulative** valve-open time in rolling hour |
-| Per day | 720 min | Cumulative daily budget |
-| MQTT failsafe close | 30 min | Close valve if MQTT lost |
+| Min / max pulse | 3–60 min | Variable pulse from moisture deficit |
+| Settle | 20 min | Firmware floor 60 s |
+| MQTT failsafe close | 30 min | Close valve if MQTT lost (after first connect) |
+| Stuck-valve cap | 24 h | Hardware E001 |
 
-See [docs/system_spec.md](docs/system_spec.md) for alarms. See
-[docs/ai_tuning_guide.md](docs/ai_tuning_guide.md) for tuning.
+See [docs/system_spec.md](docs/system_spec.md) for alarms.
 
 ## Home Assistant Integration
 
-On every MQTT connect the firmware publishes **MQTT Discovery** configs to
-`homeassistant/<domain>/<id>/config`. HA auto-creates all sensor, binary sensor,
-and button entities and groups them under a single **"Irrigation Controller"**
-device — no manual entity YAML required.
+On every MQTT connect the firmware publishes **MQTT Discovery** under
+`homeassistant/<domain>/irrigation_<instance_id>/…`, grouped as one HA device
+per controller.
 
-`homeassistant/packages/irrigation.yaml` provides the remaining HA-native
-elements: `input_number` sliders for valve timing and per-sensor dry thresholds,
-template sensors for human-readable duration display, and automations that push
-slider values to the firmware and sync on reconnect.
+Instance-scoped packages (helpers, drip automations, calibrated VWC) are
+**generated** from templates:
 
-**To enable the package**, add this to your `configuration.yaml`:
+```bash
+# Edit homeassistant/instances.yaml and homeassistant/templates/, then:
+python3 scripts/render_ha_instances.py
+./scripts/deploy-ha.sh
+```
+
+**configuration.yaml** (example for `raised_bed` + `vegetable_garden`):
 
 ```yaml
 homeassistant:
   packages:
-    irrigation: !include packages/irrigation.yaml
+    irrigation_raised_bed: !include packages/irrigation_raised_bed.yaml
+    irrigation_sensors_raised_bed: !include packages/irrigation_sensors_raised_bed.yaml
+    irrigation_vegetable_garden: !include packages/irrigation_vegetable_garden.yaml
+    irrigation_sensors_vegetable_garden: !include packages/irrigation_sensors_vegetable_garden.yaml
 ```
 
-Use a **single** package file only — do not use `!include_dir_named packages/`.
-
-Deploy the package with `./scripts/deploy-ha.sh` (prints File Editor steps) or
-copy `homeassistant/packages/irrigation.yaml` into HA `config/packages/` manually,
-then restart HA.
-
-Full post-restore checklist: [homeassistant/SETUP_AFTER_RESTORE.md](homeassistant/SETUP_AFTER_RESTORE.md)
+Full checklist: [homeassistant/SETUP_AFTER_RESTORE.md](homeassistant/SETUP_AFTER_RESTORE.md)
 
 **Mosquitto add-on settings** (recommended):
 - Start on boot: **on**
-- Watchdog: **on** — auto-restarts the broker if it stops unexpectedly
+- Watchdog: **on**
 
 ### Dashboard
 
-Copy `homeassistant/dashboards/irrigation.yaml` into a new HA dashboard via the
-raw config editor. It provides:
+Paste each `homeassistant/dashboards/irrigation_<id>.yaml` into its own Lovelace
+dashboard via the raw configuration editor (never into `config/packages/`).
 
-- **Moisture history graph** — 48-hour VWC trend for all sensors
-- **Current moisture gauges** — live VWC per sensor
-- **Valve status** — state, pulse count, runtime today/hour
-- **Manual controls** — Pulse, Force Close, Clear Fault buttons
-- **Valve timing sliders** — pulse duration and settle wait (pushed to firmware automatically)
-- **Dry threshold sliders** — per-sensor `resume_vwc` (pushed to firmware automatically)
-- **Measurement intervals** — fixed firmware constants (5 s read / 10 s telemetry); change in `config.h` and reflash
+Tabs: Status, Moisture, Controls, Sensors, Advanced — entity IDs are
+instance-scoped (`irrigation_<id>_…`).
 
 ### Sending commands from HA
 
+Prefer dashboard buttons / scripts (`script.irrigation_<id>_request_pulse`, etc.).
+
 ```yaml
-# Trigger a pulse
 service: mqtt.publish
 data:
-  topic: irrigation/valve/command
-  payload: '{"action": "pulse"}'
-
-# Update valve timing (clamped to hard safety limits on the controller)
-service: mqtt.publish
-data:
-  topic: irrigation/valve/command
-  payload: '{"action": "configure", "pulse_duration_s": 30, "settle_duration_s": 300, "max_runtime_day_s": 3600}'
-
-# Set per-sensor dry threshold (used by firmware_fallback auto-trigger)
-service: mqtt.publish
-data:
-  topic: irrigation/sensor/0/config
-  payload: '{"resume_vwc": 35.0}'
+  topic: irrigation/raised_bed/valve/command
+  payload: '{"action":"pulse","pulse_duration_s":1800}'
 ```
 
 ## Scaling to More Sensors
 
-1. Increment `SENSOR_COUNT` in `firmware/src/config.h`.
-2. Add a `Pin::SENSOR_N` constant and a `VH400` entry in `firmware/src/main.cpp`.
-3. Re-flash the firmware — MQTT Discovery automatically registers the new sensor entity in HA.
-4. In `homeassistant/packages/irrigation.yaml`: add a `resume_vwc` `input_number`,
-   an Apply Sensor N Config automation, and extend Sync Firmware On Connect.
+Firmware already publishes sensors 0–5 (A0–A5). Enable slots in HA; no reflash
+needed to add a probe on a free pin.
 
-No valve hardware changes are required.
+### Entity IDs
 
-### Entity IDs (MQTT Discovery)
-
-Discovery entities use short IDs such as `sensor.irrigation_sensor_0_vwc`,
-`binary_sensor.irrigation_valve`, and `sensor.irrigation_valve_state`. If you
-upgraded from an older build, delete stale `irrigation_controller_irrigation_*`
-entities from **Settings → Devices & services → MQTT**. See
-[docs/theory_of_operation.md](docs/theory_of_operation.md) for the full table.
+Discovery and packages use `irrigation_<instance_id>_<local_id>`, e.g.
+`sensor.irrigation_raised_bed_sensor_0_vwc`.
+See [docs/theory_of_operation.md](docs/theory_of_operation.md).
 
 ## Project Structure
 
 ```
 firmware/
-  platformio.ini          board, libraries (PubSubClient, ArduinoJson), build envs
+  platformio.ini
   src/
-    config.h              pins, #define MQTT topics, safety limits, defaults
-    secrets.h             WiFi + MQTT credentials (gitignored)
-    secrets.h.example     template — commit this, not secrets.h
-    log.h                 Serial logging macros
-    main.cpp              setup/loop, optional auto-trigger, failsafe
-    sensors/
-      VH400.h/.cpp        ADC read + Vegetronix piecewise calibration
-    irrigation/
-      ValveController.h/.cpp  pulse/settle state machine + safety enforcement
-    mqtt/
-      MqttManager.h/.cpp  MQTT connect/reconnect, pub/sub, discovery, JSON
-schemas/
-  mqtt_topics.md          MQTT topic reference + JSON schemas
-  irrigation_cycle_log.md cycle completion event schema
+    config.h              pins, MQTT_ROOT_PREFIX, hardware limits
+    secrets.h.example     WiFi, MQTT, IRRIGATION_INSTANCE_ID / NAME
+    main.cpp
+    mqtt/MqttManager.*    instance-scoped topics + discovery
 homeassistant/
-  packages/
-    irrigation.yaml       HA package: input helpers, template sensors, automations
-  dashboards/
-    irrigation.yaml       Lovelace dashboard YAML
-  SETUP_AFTER_RESTORE.md  post-backup HA checklist
+  instances.yaml          controllers to generate
+  templates/              unscoped sources (edit these)
+  packages/               generated irrigation_<id>.yaml + sensors
+  dashboards/             generated irrigation_<id>.yaml
+  SETUP_AFTER_RESTORE.md
 scripts/
-  deploy-ha.sh            deploy package to HA (Samba or instructions)
-  export_irrigation_cycles.py  export cycle events + optional VWC history
-  analyze_irrigation.py   metrics, leak simulation, HA dashboard push
+  render_ha_instances.py  generate packages/dashboards
+  deploy-ha.sh            render + copy packages to HA
+  export_irrigation_cycles.py
+  analyze_irrigation.py
+schemas/
+  mqtt_topics.md          multi-controller MQTT contract
 docs/
-  system_spec.md          North-star: purpose, moisture windows, alarms
-  operator_guide.md       Dashboard map, troubleshooting
-  feature_inventory.md    Entity/script classification (A–F)
-  audit_report.md         Doc gaps, phase-2 simplification backlog
-  hardware.md             Bill of materials, pin connections, wiring diagrams
-  vh400_calibration.md    ADC reference, piecewise VWC formulas
-  theory_of_operation.md  Firmware, MQTT, entity IDs
-  ha_drip_control.md      HA drip algorithm, leak detection, automations
-  ai_tuning_guide.md      AI agent tuning workflow
-  data_extraction.md      HA export pipeline for analysis
+  firmware_deploy.md      VS Code + PlatformIO flash guide
+  theory_of_operation.md
+  ha_drip_control.md
 .github/workflows/
   firmware-build.yml      CI: debug + release firmware builds
 ```

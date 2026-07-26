@@ -4,6 +4,12 @@ Simple moisture-driven irrigation. Firmware runs the valve state machine; Home A
 
 See [system_spec.md](system_spec.md) for purpose and [theory_of_operation.md](theory_of_operation.md) for firmware detail.
 
+**Multi-controller:** every entity, helper, script, and MQTT topic is scoped by
+`IRRIGATION_INSTANCE_ID`. Below, `<id>` means that instance (e.g. `raised_bed`).
+Normative contract: [mqtt_topics.md](../schemas/mqtt_topics.md).
+Packages are generated from `homeassistant/templates/` via
+`scripts/render_ha_instances.py`.
+
 ---
 
 ## Division of responsibility
@@ -16,6 +22,8 @@ See [system_spec.md](system_spec.md) for purpose and [theory_of_operation.md](th
 Home Assistant does **not** add a settle delay. Firmware `settling` phase covers post-pulse wait.
 
 Minimum gap between auto pulses = firmware settle time only (valve must return to `idle` before HA requests the next pulse). There is no additional HA `last_changed` settle guard.
+
+Each instance is independent: separate valve, sensors, helpers, automations, and history.
 
 ---
 
@@ -31,7 +39,7 @@ When mode is `auto`, valve is `idle`, controller online, and at least one sensor
 | All **enabled** sensors ≥ `min_vwc` | Do not water |
 | At least one **enabled** sensor < `min_vwc` | **Request pulse** |
 
-Freshness uses MQTT sensor `last_updated` vs 90 s threshold. Disabled slots are ignored entirely.
+Freshness uses per-sensor MQTT “seen” heartbeats (90 s). Disabled slots are ignored entirely.
 
 ---
 
@@ -39,16 +47,17 @@ Freshness uses MQTT sensor `last_updated` vs 90 s threshold. Disabled slots are 
 
 Firmware publishes all six analog pins (A0–A5). Home Assistant controls which slots participate in auto logic:
 
-| Helper | Default | Purpose |
-|--------|---------|---------|
-| `input_boolean.irrigation_sensor_N_enabled` | on for N=0,1; off for 2–5 | Include slot in auto, freshness, pulse sizing |
-| `input_text.irrigation_sensor_N_label` | `Sensor N` | Optional dashboard label |
+| Helper | Purpose |
+|--------|---------|
+| `input_boolean.irrigation_<id>_sensor_N_enabled` | Include slot in auto, freshness, pulse sizing |
+| `input_text.irrigation_<id>_sensor_N_label` | Optional dashboard label |
 
-**Add a probe:** wire VH400 to the next free pin (A0–A5), turn on `irrigation_sensor_N_enabled`, set min/target/max.
+**Add a probe:** wire VH400 to the next free pin (A0–A5), turn on the enable helper, set min/target/max.
 
-**Remove a probe:** turn off `irrigation_sensor_N_enabled` (no reflash required).
+**Remove a probe:** turn off the enable helper (no reflash required).
 
-Deploy both `irrigation.yaml` and `irrigation_sensors.yaml` to `config/packages/`.
+Deploy generated `irrigation_<id>.yaml` and `irrigation_sensors_<id>.yaml` to
+`config/packages/` (see [SETUP_AFTER_RESTORE.md](../homeassistant/SETUP_AFTER_RESTORE.md)).
 
 ---
 
@@ -60,16 +69,16 @@ Firmware publishes **raw** VH400 VWC from the factory curve. Each probe can diff
 calibrated = clamp(raw × scale + offset, 0, 100)
 ```
 
-| Helper | Default | Purpose |
-|--------|---------|---------|
-| `sensor.irrigation_sensor_N_vwc_raw` | — | Unadjusted firmware reading |
-| `sensor.irrigation_sensor_N_vwc` | — | Calibrated value (used everywhere) |
-| `input_number.irrigation_sensorN_vwc_scale` | 1.0 | Gain |
-| `input_number.irrigation_sensorN_vwc_offset` | 0 | Baseline shift (%) |
+| Helper | Purpose |
+|--------|---------|
+| `sensor.irrigation_<id>_sensor_N_vwc_raw` | Unadjusted firmware reading |
+| `sensor.irrigation_<id>_sensor_N_vwc` | Calibrated value (used everywhere) |
+| `input_number.irrigation_<id>_sensorN_vwc_scale` | Gain |
+| `input_number.irrigation_<id>_sensorN_vwc_offset` | Baseline shift (%) |
 
 **Side-by-side alignment:** bury both probes in the same moist soil, wait ~1 min, tap **Calibrate S0 to Match S1** (or the reverse). That sets offset so calibrated readings match at the current moisture. Fine-tune scale if response shape still differs.
 
-Scripts: `irrigation_calibrate_sensor_to_reference` (parameterized), `irrigation_calibrate_sensor0_to_sensor1`, `irrigation_calibrate_sensor1_to_sensor0`, `irrigation_reset_sensor_calibration`, `irrigation_reset_sensorN_calibration` (aliases for 0/1).
+Scripts: `irrigation_<id>_calibrate_sensor_to_reference` (parameterized), `…_calibrate_sensor0_to_sensor1`, `…_calibrate_sensor1_to_sensor0`, `…_reset_sensor_calibration`, `…_reset_sensorN_calibration` (aliases for 0/1).
 
 ---
 
@@ -82,7 +91,7 @@ deficit = max((target - vwc) / (target - min), 0)   capped at 1.0
 pulse_min = min_pulse + (max_pulse - min_pulse) × deficit
 ```
 
-Published as `{"action":"pulse","pulse_duration_s":…}`.
+Published as `{"action":"pulse","pulse_duration_s":…}` on `irrigation/<id>/valve/command`.
 
 ---
 
@@ -90,10 +99,10 @@ Published as `{"action":"pulse","pulse_duration_s":…}`.
 
 | Script | Purpose |
 |--------|---------|
-| `irrigation_sync_firmware` | MQTT `configure` — settle, max pulse, failsafe |
-| `irrigation_request_pulse` | Sync + compute duration + MQTT `pulse` |
-| `irrigation_force_close` | MQTT `close` |
-| `irrigation_clear_fault` | MQTT `clear_fault` |
+| `irrigation_<id>_sync_firmware` | MQTT `configure` — settle, max pulse, failsafe |
+| `irrigation_<id>_request_pulse` | Sync + compute duration + MQTT `pulse` |
+| `irrigation_<id>_force_close` | MQTT `close` |
+| `irrigation_<id>_clear_fault` | MQTT `clear_fault` |
 
 ---
 
@@ -101,12 +110,14 @@ Published as `{"action":"pulse","pulse_duration_s":…}`.
 
 | Automation | Purpose |
 |------------|---------|
-| Irrigation Sync On Connect / Start | Push configure after boot or MQTT reconnect |
-| Irrigation Auto Request Pulse | When block reason = `Ready`, every 5 min |
-| Irrigation Stop On Max VWC | Force close if any **enabled** sensor ≥ max while pulsing |
-| Irrigation Valve Fault Alert | Notification on `fault` state |
-| Irrigation Record Pulse Start Moisture | Store VWC for enabled slots when pulse begins |
-| Irrigation Log Settle Snapshot | Record enabled slots at end of settle (`settling` → `idle`) |
+| Sync On Connect / Start | Push configure after boot or MQTT reconnect |
+| Auto Request Pulse | When block reason = `Ready`, every 5 min |
+| Stop On Max VWC | Force close if any **enabled** sensor ≥ max while pulsing |
+| Valve Fault Alert | Notification on `fault` state |
+| Record Pulse Start Moisture | Store VWC for enabled slots when pulse begins |
+| Log Settle Snapshot | Record enabled slots at end of settle (`settling` → `idle`) |
+
+All automation `id:` values are instance-prefixed (`irrigation_<id>_…`).
 
 ---
 
@@ -116,16 +127,16 @@ When the valve completes settle and returns to `idle`, HA records moisture for a
 
 | Output | Purpose |
 |--------|---------|
-| `input_number.irrigation_last_settle_sN_vwc` | Last post-settle reading per slot (recorder history) |
-| `input_datetime.irrigation_last_settle_at` | Timestamp of last snapshot |
-| Event `irrigation_settle_snapshot` | Full payload for export/analysis |
+| `input_number.irrigation_<id>_last_settle_sN_vwc` | Last post-settle reading per slot |
+| `input_datetime.irrigation_<id>_last_settle_at` | Timestamp of last snapshot |
+| Event `irrigation_<id>_settle_snapshot` | Full payload for export/analysis |
 | Logbook entry | Human-readable summary with deltas |
 
-Event fields: `sensors` (list of `{id, vwc, vwc_before, delta}` for enabled slots), `actual_pulse_s`, `requested_pulse_s`, `recorded_at`. Legacy per-slot helpers S0–S5 remain for dashboard/history.
+Event fields: `sensors` (list of `{id, vwc, vwc_before, delta}` for enabled slots), `actual_pulse_s`, `requested_pulse_s`, `recorded_at`.
 
 Pulse-start moisture is captured when valve enters `pulsing` so deltas reflect the full pulse + settle cycle. Early force-close during pulse (no settle) does not emit a snapshot.
 
-**Analysis:** collect **~1 week** of auto cycles, then export `irrigation_settle_snapshot` events and sensor history — see [data_extraction.md](data_extraction.md) and [schemas/irrigation_settle_snapshot.md](../schemas/irrigation_settle_snapshot.md).
+**Analysis:** collect **~1 week** of auto cycles, then export settle-snapshot events and sensor history — see [data_extraction.md](data_extraction.md).
 
 ---
 
@@ -138,4 +149,4 @@ Pulse-start moisture is captured when valve enters `pulsing` so deltas reflect t
 {"action":"clear_fault"}
 ```
 
-Full schema: [schemas/mqtt_topics.md](../schemas/mqtt_topics.md).
+Topic: `irrigation/<id>/valve/command`. Full schema: [schemas/mqtt_topics.md](../schemas/mqtt_topics.md).

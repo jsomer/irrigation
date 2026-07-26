@@ -9,7 +9,7 @@
 // ── Command types ─────────────────────────────────────────────────────────────
 
 enum class MqttCommandTarget : uint8_t {
-  VALVE,   // irrigation/valve/command
+  VALVE,   // irrigation/<instance_id>/valve/command
 };
 
 struct MqttCommand {
@@ -26,9 +26,10 @@ class MqttManager {
 public:
   MqttManager(const char* broker, uint16_t port,
               const char* user, const char* password,
+              const char* instanceId, const char* instanceName,
               uint8_t sensorCount);
 
-  void begin(const char* clientId);
+  void begin();
 
   // Call every loop iteration. Handles reconnect + PubSubClient::loop().
   void loop();
@@ -67,7 +68,12 @@ private:
   uint16_t      _port;
   const char*   _user;
   const char*   _password;
-  const char*   _clientId;
+  const char*   _instanceId;
+  const char*   _instanceName;
+  char          _normalizedInstanceId[33];
+  char          _mqttRoot[64];
+  char          _clientId[64];
+  char          _haNodeId[48];
   uint8_t       _sensorCount;
 
   CommandCallback _commandCb;
@@ -83,6 +89,10 @@ private:
   // Topic builders
   void sensorTopic(char* buf, size_t len, uint8_t sensorId, const char* suffix) const;
   void valveTopic (char* buf, size_t len, const char* suffix) const;
+  void entityId(char* buf, size_t len, const char* localId) const;
+  void entityName(char* buf, size_t len, const char* localName) const;
+  void deviceBlock(char* buf, size_t len) const;
+  void availabilityBlock(char* buf, size_t len) const;
 
   // Discovery helpers
   void discoverSensorVwc(uint8_t sensorId);

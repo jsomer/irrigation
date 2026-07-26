@@ -20,12 +20,13 @@ namespace Pin {
 constexpr uint8_t SENSOR_COUNT = 6;
 
 // ── MQTT topics ───────────────────────────────────────────────────────────────
-#define MQTT_ROOT             "irrigation"
+// The instance ID in secrets.h is inserted after this prefix so every physical
+// controller has an isolated MQTT namespace: irrigation/<instance_id>/...
+#define MQTT_ROOT_PREFIX      "irrigation"
 #define MQTT_TOPIC_TELEMETRY  "telemetry"
 #define MQTT_TOPIC_COMMAND    "command"
 #define MQTT_TOPIC_STATUS     "status"
 #define MQTT_TOPIC_CONFIG     "config"
-#define MQTT_CLIENT_ID        "irrigation-controller"
 
 // ── Hardware-only limits (not HA tuning knobs) ────────────────────────────────
 // Operational limits are pushed from Home Assistant via MQTT configure and

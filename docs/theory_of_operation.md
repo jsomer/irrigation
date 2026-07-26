@@ -56,6 +56,15 @@ Pulse denied (busy, unconfigured, zero duration) returns `false` from
 WiFi reconnect every 30 s; MQTT reconnect every 5 s. On connect: subscribe valve
 command, LWT `online`, MQTT Discovery, telemetry every 10 s.
 
+Every physical controller has a stable `IRRIGATION_INSTANCE_ID` in its local
+`secrets.h`. Runtime topics are rooted at
+`irrigation/<instance_id>/`; the MQTT client ID, Home Assistant device
+identifier, discovery path, and every discovery `unique_id` are derived from
+the same value. This prevents controllers on one broker from disconnecting,
+cross-commanding, overwriting discovery, or merging in the HA device registry.
+See [the MQTT topic schema](../schemas/mqtt_topics.md) for the normative
+multi-controller contract and migration procedure.
+
 Failsafe disconnect timer starts only **after the first successful MQTT connect**.
 If the broker is unreachable at boot, failsafe does not run.
 
@@ -78,26 +87,29 @@ Intervals: `READ_INTERVAL_MS` = 5 s, `TELEMETRY_INTERVAL_MS` = 10 s in `config.h
 
 ## MQTT Discovery entities
 
-Device **"Irrigation Controller"**:
+For an instance `<instance_id>`, the device identifier is
+`irrigation_<instance_id>` and discovered entity IDs have the form
+`<domain>.irrigation_<instance_id>_<local_entity_id>`:
 
 | Purpose | Entity ID |
 |---------|-----------|
-| Sensor 0–5 VWC | `sensor.irrigation_sensor_N_vwc` |
-| Valve open (relay) | `binary_sensor.irrigation_valve` |
-| Valve state | `sensor.irrigation_valve_state` |
-| Actual pulse seconds | `sensor.irrigation_actual_pulse_s` |
-| Pulse elapsed seconds | `sensor.irrigation_pulse_elapsed_s` |
-| Pulse count | `sensor.irrigation_valve_pulse_count` |
-| Error code | `sensor.irrigation_error_code` |
-| Fault reason | `sensor.irrigation_fault_reason` |
-| Configured | `binary_sensor.irrigation_firmware_configured` |
-| Config source | `sensor.irrigation_config_source` |
-| Controller online | `binary_sensor.irrigation_controller_online` |
-| Close valve | `button.irrigation_valve_close` |
-| Clear fault | `button.irrigation_clear_fault` |
+| Sensor 0–5 VWC | `sensor.irrigation_<instance_id>_sensor_N_vwc` |
+| Valve open (relay) | `binary_sensor.irrigation_<instance_id>_valve` |
+| Valve state | `sensor.irrigation_<instance_id>_valve_state` |
+| Pulse elapsed seconds | `sensor.irrigation_<instance_id>_pulse_elapsed_s` |
+| Pulse count | `sensor.irrigation_<instance_id>_valve_pulse_count` |
+| Error code | `sensor.irrigation_<instance_id>_error_code` |
+| Fault reason | `sensor.irrigation_<instance_id>_fault_reason` |
+| Configured | `binary_sensor.irrigation_<instance_id>_firmware_configured` |
+| Config source | `sensor.irrigation_<instance_id>_config_source` |
+| Controller online | `binary_sensor.irrigation_<instance_id>_controller_online` |
+| Close valve | `button.irrigation_<instance_id>_valve_close` |
+| Clear fault | `button.irrigation_<instance_id>_clear_fault` |
 
-Package (`irrigation.yaml` + `irrigation_sensors.yaml`) duplicates core valve entities and adds HA helpers.
-See [ha_drip_control.md](ha_drip_control.md).
+HA-created entities and helpers are instance-scoped via generated packages
+(`homeassistant/templates/` → `scripts/render_ha_instances.py`). See
+[schemas/mqtt_topics.md](../schemas/mqtt_topics.md) and
+[ha_drip_control.md](ha_drip_control.md).
 
 ---
 
@@ -105,10 +117,10 @@ See [ha_drip_control.md](ha_drip_control.md).
 
 | Topic | Direction | Content |
 |---|---|---|
-| `irrigation/sensor/<id>/telemetry` | Device → HA | `{sensor, vwc, ts}` |
-| `irrigation/valve/telemetry` | Device → HA | valve state, pulse metrics, faults |
-| `irrigation/valve/command` | HA → Device | `pulse`, `close`, `clear_fault`, `configure` |
-| `irrigation/valve/status` | Device → HA | `online` / `offline` (LWT) |
+| `irrigation/<instance_id>/sensor/<id>/telemetry` | Device → HA | `{sensor, vwc, voltage, ts}` |
+| `irrigation/<instance_id>/valve/telemetry` | Device → HA | valve state, pulse metrics, faults |
+| `irrigation/<instance_id>/valve/command` | HA → Device | `pulse`, `close`, `clear_fault`, `configure` |
+| `irrigation/<instance_id>/valve/status` | Device → HA | `online` / `offline` (LWT) |
 
 Full field list: [schemas/mqtt_topics.md](../schemas/mqtt_topics.md).
 
@@ -134,6 +146,9 @@ Full field list: [schemas/mqtt_topics.md](../schemas/mqtt_topics.md).
 
 ## Sensor slots (0–5)
 
-Firmware reads all six analog inputs (A0–A5) and publishes `irrigation/sensor/<id>/telemetry` for each. Home Assistant uses `input_boolean.irrigation_sensor_N_enabled` to include or exclude slots from auto logic without reflashing.
+Firmware reads all six analog inputs (A0–A5) and publishes
+`irrigation/<instance_id>/sensor/<id>/telemetry` for each. Home Assistant uses
+an instance-scoped sensor-enable helper to include or exclude slots from auto
+logic without reflashing.
 
 To add a probe: wire to the next free pin, enable the slot in HA, set thresholds. Gaps are allowed (e.g. S0 and S2 enabled, S1 disabled).

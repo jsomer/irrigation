@@ -32,7 +32,8 @@ unsigned long lastTelemetryMs  = 0;
 
 float latestVWC[SENSOR_COUNT];
 
-MqttManager mqtt(MQTT_BROKER, MQTT_PORT, MQTT_USER, MQTT_PASSWORD, SENSOR_COUNT);
+MqttManager mqtt(MQTT_BROKER, MQTT_PORT, MQTT_USER, MQTT_PASSWORD,
+                 IRRIGATION_INSTANCE_ID, IRRIGATION_INSTANCE_NAME, SENSOR_COUNT);
 
 static unsigned long lastWifiCheckMs = 0;
 static constexpr uint32_t WIFI_CHECK_INTERVAL_MS  = 30000;
@@ -181,9 +182,10 @@ void setup() {
   connectWiFi();
 
   mqtt.setCommandCallback(onCommand);
-  mqtt.begin(MQTT_CLIENT_ID);
+  mqtt.begin();
 
-  LOG_I(TAG, "Irrigation controller ready — %d sensor(s), 1 valve", SENSOR_COUNT);
+  LOG_I(TAG, "%s controller ready — %d sensor(s), 1 valve",
+        IRRIGATION_INSTANCE_NAME, SENSOR_COUNT);
 }
 
 void loop() {

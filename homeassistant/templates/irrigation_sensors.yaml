@@ -1,4 +1,8 @@
-# Sensor slots 0–5 — deploy alongside irrigation.yaml in config/packages/
+# UNSCOPED TEMPLATE — edit this file, then regenerate packages:
+#   python3 scripts/render_ha_instances.py
+# Do not deploy this file directly; deploy irrigation_sensors_<id>.yaml
+#
+# Sensor slots 0–5 — deploy alongside irrigation_<id>.yaml in config/packages/
 # Enable/disable per slot in HA; firmware publishes all six A0–A5 pins.
 #
 # Persistence: helpers intentionally have NO `initial:` so enable toggles,
@@ -360,6 +364,10 @@ template:
           {% set offset = states('input_number.irrigation_sensor0_vwc_offset') | float(0) %}
           {% set v = raw * scale + offset %}
           {{ [0, [100, v] | min] | max | round(1) }}
+      - name: Irrigation Sensor 0 Seen
+        unique_id: irrigation_sensor_0_seen
+        icon: mdi:clock-check-outline
+        state: "{{ now().isoformat() if trigger.platform == 'mqtt' else states('sensor.irrigation_sensor_0_seen') }}"
 
   - trigger:
       - platform: mqtt
@@ -394,6 +402,10 @@ template:
           {% set offset = states('input_number.irrigation_sensor1_vwc_offset') | float(0) %}
           {% set v = raw * scale + offset %}
           {{ [0, [100, v] | min] | max | round(1) }}
+      - name: Irrigation Sensor 1 Seen
+        unique_id: irrigation_sensor_1_seen
+        icon: mdi:clock-check-outline
+        state: "{{ now().isoformat() if trigger.platform == 'mqtt' else states('sensor.irrigation_sensor_1_seen') }}"
 
   - trigger:
       - platform: mqtt
@@ -428,6 +440,10 @@ template:
           {% set offset = states('input_number.irrigation_sensor2_vwc_offset') | float(0) %}
           {% set v = raw * scale + offset %}
           {{ [0, [100, v] | min] | max | round(1) }}
+      - name: Irrigation Sensor 2 Seen
+        unique_id: irrigation_sensor_2_seen
+        icon: mdi:clock-check-outline
+        state: "{{ now().isoformat() if trigger.platform == 'mqtt' else states('sensor.irrigation_sensor_2_seen') }}"
 
   - trigger:
       - platform: mqtt
@@ -462,6 +478,10 @@ template:
           {% set offset = states('input_number.irrigation_sensor3_vwc_offset') | float(0) %}
           {% set v = raw * scale + offset %}
           {{ [0, [100, v] | min] | max | round(1) }}
+      - name: Irrigation Sensor 3 Seen
+        unique_id: irrigation_sensor_3_seen
+        icon: mdi:clock-check-outline
+        state: "{{ now().isoformat() if trigger.platform == 'mqtt' else states('sensor.irrigation_sensor_3_seen') }}"
 
   - trigger:
       - platform: mqtt
@@ -496,6 +516,10 @@ template:
           {% set offset = states('input_number.irrigation_sensor4_vwc_offset') | float(0) %}
           {% set v = raw * scale + offset %}
           {{ [0, [100, v] | min] | max | round(1) }}
+      - name: Irrigation Sensor 4 Seen
+        unique_id: irrigation_sensor_4_seen
+        icon: mdi:clock-check-outline
+        state: "{{ now().isoformat() if trigger.platform == 'mqtt' else states('sensor.irrigation_sensor_4_seen') }}"
 
   - trigger:
       - platform: mqtt
@@ -530,23 +554,58 @@ template:
           {% set offset = states('input_number.irrigation_sensor5_vwc_offset') | float(0) %}
           {% set v = raw * scale + offset %}
           {{ [0, [100, v] | min] | max | round(1) }}
+      - name: Irrigation Sensor 5 Seen
+        unique_id: irrigation_sensor_5_seen
+        icon: mdi:clock-check-outline
+        state: "{{ now().isoformat() if trigger.platform == 'mqtt' else states('sensor.irrigation_sensor_5_seen') }}"
 
-  - binary_sensor:
+  # Freshness uses *Seen heartbeats (always change on MQTT), not VWC last_updated.
+  # Steady moisture leaves last_updated stale and would falsely block auto watering.
+  - trigger:
+      - platform: state
+        entity_id:
+          - sensor.irrigation_sensor_0_seen
+          - sensor.irrigation_sensor_1_seen
+          - sensor.irrigation_sensor_2_seen
+          - sensor.irrigation_sensor_3_seen
+          - sensor.irrigation_sensor_4_seen
+          - sensor.irrigation_sensor_5_seen
+      - platform: time_pattern
+        seconds: "/30"
+    binary_sensor:
       - name: Irrigation Sensor 0 Fresh
         unique_id: irrigation_sensor_0_fresh
-        state: "{{ states('sensor.irrigation_sensor_0_vwc') not in ['unknown', 'unavailable', 'none', ''] and (now() - states.sensor.irrigation_sensor_0_vwc.last_updated).total_seconds() < 90 }}"
+        state: >
+          {{ states('sensor.irrigation_sensor_0_seen') not in ['unknown', 'unavailable', 'none', '']
+             and states.sensor.irrigation_sensor_0_seen is not none
+             and (now() - states.sensor.irrigation_sensor_0_seen.last_changed).total_seconds() < 90 }}
       - name: Irrigation Sensor 1 Fresh
         unique_id: irrigation_sensor_1_fresh
-        state: "{{ states('sensor.irrigation_sensor_1_vwc') not in ['unknown', 'unavailable', 'none', ''] and (now() - states.sensor.irrigation_sensor_1_vwc.last_updated).total_seconds() < 90 }}"
+        state: >
+          {{ states('sensor.irrigation_sensor_1_seen') not in ['unknown', 'unavailable', 'none', '']
+             and states.sensor.irrigation_sensor_1_seen is not none
+             and (now() - states.sensor.irrigation_sensor_1_seen.last_changed).total_seconds() < 90 }}
       - name: Irrigation Sensor 2 Fresh
         unique_id: irrigation_sensor_2_fresh
-        state: "{{ states('sensor.irrigation_sensor_2_vwc') not in ['unknown', 'unavailable', 'none', ''] and (now() - states.sensor.irrigation_sensor_2_vwc.last_updated).total_seconds() < 90 }}"
+        state: >
+          {{ states('sensor.irrigation_sensor_2_seen') not in ['unknown', 'unavailable', 'none', '']
+             and states.sensor.irrigation_sensor_2_seen is not none
+             and (now() - states.sensor.irrigation_sensor_2_seen.last_changed).total_seconds() < 90 }}
       - name: Irrigation Sensor 3 Fresh
         unique_id: irrigation_sensor_3_fresh
-        state: "{{ states('sensor.irrigation_sensor_3_vwc') not in ['unknown', 'unavailable', 'none', ''] and (now() - states.sensor.irrigation_sensor_3_vwc.last_updated).total_seconds() < 90 }}"
+        state: >
+          {{ states('sensor.irrigation_sensor_3_seen') not in ['unknown', 'unavailable', 'none', '']
+             and states.sensor.irrigation_sensor_3_seen is not none
+             and (now() - states.sensor.irrigation_sensor_3_seen.last_changed).total_seconds() < 90 }}
       - name: Irrigation Sensor 4 Fresh
         unique_id: irrigation_sensor_4_fresh
-        state: "{{ states('sensor.irrigation_sensor_4_vwc') not in ['unknown', 'unavailable', 'none', ''] and (now() - states.sensor.irrigation_sensor_4_vwc.last_updated).total_seconds() < 90 }}"
+        state: >
+          {{ states('sensor.irrigation_sensor_4_seen') not in ['unknown', 'unavailable', 'none', '']
+             and states.sensor.irrigation_sensor_4_seen is not none
+             and (now() - states.sensor.irrigation_sensor_4_seen.last_changed).total_seconds() < 90 }}
       - name: Irrigation Sensor 5 Fresh
         unique_id: irrigation_sensor_5_fresh
-        state: "{{ states('sensor.irrigation_sensor_5_vwc') not in ['unknown', 'unavailable', 'none', ''] and (now() - states.sensor.irrigation_sensor_5_vwc.last_updated).total_seconds() < 90 }}"
+        state: >
+          {{ states('sensor.irrigation_sensor_5_seen') not in ['unknown', 'unavailable', 'none', '']
+             and states.sensor.irrigation_sensor_5_seen is not none
+             and (now() - states.sensor.irrigation_sensor_5_seen.last_changed).total_seconds() < 90 }}

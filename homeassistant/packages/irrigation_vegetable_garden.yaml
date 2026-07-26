@@ -1,0 +1,969 @@
+# GENERATED — do not edit by hand.
+# Instance: vegetable_garden (Vegetable Garden)
+# Source: homeassistant/templates/ + instances.yaml
+# Regenerate: python3 scripts/render_ha_instances.py
+#
+# UNSCOPED TEMPLATE — edit this file, then regenerate packages:
+#   python3 scripts/render_ha_instances.py
+# Do not deploy this file directly; deploy homeassistant/packages/irrigation_<id>.yaml
+#
+# HOME ASSISTANT PACKAGE — instance-scoped copy goes to config/packages/
+# Also deploy irrigation_vegetable_garden_sensors_<id>.yaml alongside (sensor slots 0–5).
+# Simple loop: HA reads moisture → requests pulse → firmware runs pulse + settle.
+#
+# Persistence: helpers have NO `initial:` so operator settings and recorded
+# data restore across HA restarts (`initial:` would reset them every restart).
+# Recommended starting values on a fresh install:
+#   control_mode manual · settle 20 min · max pulse 60 min · min pulse 3 min
+#   failsafe 30 min · bands per sensor: min 35 % / target 44 % / max 50 %
+
+input_select:
+  irrigation_vegetable_garden_control_mode:
+    name: Irrigation Control Mode
+    options:
+      - disabled
+      - manual
+      - auto
+    icon: mdi:sprinkler-variant
+
+  # Dashboard display filters only — do not affect control logic or sensor
+  # slot configuration. No initial: so the operator's last-picked view persists.
+  irrigation_vegetable_garden_chart_range:
+    name: Moisture Chart Range
+    options:
+      - 24h
+      - 1h
+      - 8h
+      - 3d
+      - 7d
+    icon: mdi:clock-outline
+
+  irrigation_vegetable_garden_chart_sensor_mode:
+    name: Moisture Chart Sensors
+    options:
+      - Enabled only
+      - All
+    icon: mdi:filter-variant
+
+input_boolean:
+  # Chart event overlays — dashboard display only, off by default to keep the
+  # default chart clean.
+  irrigation_vegetable_garden_chart_show_watering:
+    name: Chart Overlay - Watering
+    icon: mdi:water
+  irrigation_vegetable_garden_chart_show_settle:
+    name: Chart Overlay - Settle Periods
+    icon: mdi:timer-sand
+  irrigation_vegetable_garden_chart_show_errors:
+    name: Chart Overlay - Errors
+    icon: mdi:alert-circle-outline
+
+input_number:
+  irrigation_vegetable_garden_settle_min:
+    name: Settle Duration
+    min: 1
+    max: 60
+    step: 1
+    unit_of_measurement: min
+
+  irrigation_vegetable_garden_max_pulse_min:
+    name: Max Pulse Duration
+    min: 1
+    max: 360
+    step: 1
+    unit_of_measurement: min
+
+  irrigation_vegetable_garden_min_pulse_min:
+    name: Min Pulse Duration
+    min: 1
+    max: 60
+    step: 1
+    unit_of_measurement: min
+
+  irrigation_vegetable_garden_failsafe_disconnect_min:
+    name: MQTT Failsafe Disconnect
+    min: 2
+    max: 360
+    step: 1
+    unit_of_measurement: min
+
+  # No initial: recorded data must survive HA restarts
+  irrigation_vegetable_garden_last_requested_pulse_s:
+    name: Irrigation Last Requested Pulse S
+    min: 60
+    max: 21600
+    step: 60
+    unit_of_measurement: s
+    mode: box
+
+input_datetime:
+  irrigation_vegetable_garden_last_settle_at:
+    name: Last Settle Recorded At
+    has_date: true
+    has_time: true
+
+  irrigation_vegetable_garden_settle_started_at:
+    name: Settle Started At
+    has_date: true
+    has_time: true
+
+  irrigation_vegetable_garden_pulse_started_at:
+    name: Pulse Started At
+    has_date: true
+    has_time: true
+
+input_text:
+  irrigation_vegetable_garden_cycle_time_remaining:
+    name: Irrigation Cycle Time Remaining
+    max: 64
+    initial: "—"
+
+  # No initial: recorded data must survive HA restarts
+  irrigation_vegetable_garden_last_stop_reason:
+    name: Irrigation Last Stop Reason
+    max: 64
+
+  irrigation_vegetable_garden_settle_snapshot_gaps:
+    name: Irrigation Settle Snapshot Gaps
+    max: 128
+
+template:
+  - trigger:
+      - platform: mqtt
+        topic: irrigation/vegetable_garden/valve/telemetry
+    sensor:
+      - name: Irrigation Valve State
+        unique_id: irrigation_vegetable_garden_valve_state
+        icon: mdi:valve
+        state: "{{ trigger.payload_json.state | default('unknown') }}"
+      - name: Irrigation Actual Pulse S
+        unique_id: irrigation_vegetable_garden_actual_pulse_s
+        icon: mdi:timer-outline
+        unit_of_measurement: s
+        state: "{{ trigger.payload_json.actual_pulse_s | default(0) }}"
+      - name: Irrigation Pulse Elapsed S
+        unique_id: irrigation_vegetable_garden_pulse_elapsed_s
+        icon: mdi:timer-sand
+        unit_of_measurement: s
+        state: "{{ trigger.payload_json.pulse_elapsed_s | default(0) }}"
+      - name: Irrigation Error Code
+        unique_id: irrigation_vegetable_garden_error_code
+        icon: mdi:alert-circle-outline
+        state: "{{ trigger.payload_json.error_code | default('none') }}"
+    binary_sensor:
+      - name: Irrigation Valve Open
+        unique_id: irrigation_vegetable_garden_valve
+        device_class: opening
+        state: "{{ trigger.payload_json.valve_open | default(false) | bool }}"
+
+  # Separate from valve_state so a unique_id clash with MQTT discovery cannot
+  # prevent freshness tracking while state stays "idle".
+  - trigger:
+      - platform: mqtt
+        topic: irrigation/vegetable_garden/valve/telemetry
+    sensor:
+      - name: Irrigation Telemetry Heartbeat
+        unique_id: irrigation_vegetable_garden_telemetry_heartbeat
+        icon: mdi:heart-pulse
+        state: "{{ now().isoformat() }}"
+
+  - trigger:
+      - platform: mqtt
+        topic: irrigation/vegetable_garden/valve/status
+    binary_sensor:
+      - name: Irrigation Controller Online
+        unique_id: irrigation_vegetable_garden_controller_online
+        device_class: connectivity
+        state: "{{ trigger.payload == 'online' }}"
+
+  # Authoritative valve state for HA logic/UI. Raw MQTT sensor keeps last payload
+  # forever if telemetry stops; heartbeat times out after 45 s (firmware ~10 s).
+  - trigger:
+      - platform: state
+        entity_id:
+          - sensor.irrigation_vegetable_garden_valve_state
+          - sensor.irrigation_vegetable_garden_telemetry_heartbeat
+          - sensor.irrigation_vegetable_garden_actual_pulse_s
+          - binary_sensor.irrigation_vegetable_garden_controller_online
+          - binary_sensor.irrigation_vegetable_garden_valve
+      - platform: time_pattern
+        seconds: "/15"
+    sensor:
+      - name: Irrigation Valve State Resolved
+        unique_id: irrigation_vegetable_garden_valve_state_resolved
+        icon: mdi:valve
+        state: |
+          {% if not is_state('binary_sensor.irrigation_vegetable_garden_controller_online', 'on') %}
+            unknown
+          {% else %}
+            {% set raw = states('sensor.irrigation_vegetable_garden_valve_state') %}
+            {% set hb = states.sensor.irrigation_vegetable_garden_telemetry_heartbeat %}
+            {% if raw in ['unknown', 'unavailable', 'none', ''] %}
+              unknown
+            {% elif hb is none
+                  or (now() - hb.last_changed).total_seconds() > 45 %}
+              unknown
+            {% else %}
+              {{ raw }}
+            {% endif %}
+          {% endif %}
+
+      - name: Irrigation Actual Pulse Min
+        unique_id: irrigation_vegetable_garden_actual_pulse_min
+        icon: mdi:timer-outline
+        unit_of_measurement: min
+        state: "{{ (states('sensor.irrigation_vegetable_garden_actual_pulse_s') | float(0) / 60) | round(1) }}"
+
+  - trigger:
+      - platform: state
+        entity_id:
+          - input_select.irrigation_vegetable_garden_control_mode
+          - sensor.irrigation_vegetable_garden_valve_state_resolved
+          - binary_sensor.irrigation_vegetable_garden_controller_online
+          - input_boolean.irrigation_vegetable_garden_sensor_0_enabled
+          - input_boolean.irrigation_vegetable_garden_sensor_1_enabled
+          - input_boolean.irrigation_vegetable_garden_sensor_2_enabled
+          - input_boolean.irrigation_vegetable_garden_sensor_3_enabled
+          - input_boolean.irrigation_vegetable_garden_sensor_4_enabled
+          - input_boolean.irrigation_vegetable_garden_sensor_5_enabled
+          - binary_sensor.irrigation_vegetable_garden_sensor_0_fresh
+          - binary_sensor.irrigation_vegetable_garden_sensor_1_fresh
+          - binary_sensor.irrigation_vegetable_garden_sensor_2_fresh
+          - binary_sensor.irrigation_vegetable_garden_sensor_3_fresh
+          - binary_sensor.irrigation_vegetable_garden_sensor_4_fresh
+          - binary_sensor.irrigation_vegetable_garden_sensor_5_fresh
+          - sensor.irrigation_vegetable_garden_sensor_0_vwc
+          - sensor.irrigation_vegetable_garden_sensor_1_vwc
+          - sensor.irrigation_vegetable_garden_sensor_2_vwc
+          - sensor.irrigation_vegetable_garden_sensor_3_vwc
+          - sensor.irrigation_vegetable_garden_sensor_4_vwc
+          - sensor.irrigation_vegetable_garden_sensor_5_vwc
+          - input_number.irrigation_vegetable_garden_sensor0_min_vwc
+          - input_number.irrigation_vegetable_garden_sensor1_min_vwc
+          - input_number.irrigation_vegetable_garden_sensor2_min_vwc
+          - input_number.irrigation_vegetable_garden_sensor3_min_vwc
+          - input_number.irrigation_vegetable_garden_sensor4_min_vwc
+          - input_number.irrigation_vegetable_garden_sensor5_min_vwc
+          - input_number.irrigation_vegetable_garden_sensor0_max_vwc
+          - input_number.irrigation_vegetable_garden_sensor1_max_vwc
+          - input_number.irrigation_vegetable_garden_sensor2_max_vwc
+          - input_number.irrigation_vegetable_garden_sensor3_max_vwc
+          - input_number.irrigation_vegetable_garden_sensor4_max_vwc
+          - input_number.irrigation_vegetable_garden_sensor5_max_vwc
+      - platform: time_pattern
+        seconds: "/30"
+    sensor:
+      - name: Irrigation Auto Block Reason
+        unique_id: irrigation_vegetable_garden_auto_block_reason
+        icon: mdi:information-outline
+        state: |
+          {% set ns = namespace(enabled=[], stale=false, at_max=false, all_ok=true, ok_parts=[]) %}
+          {% set valve = states('sensor.irrigation_vegetable_garden_valve_state_resolved') %}
+          {% for i in range(6) %}
+            {% if is_state('input_boolean.irrigation_vegetable_garden_sensor_' ~ i ~ '_enabled', 'on') %}
+              {% set ns.enabled = ns.enabled + [i] %}
+            {% endif %}
+          {% endfor %}
+          {% if not is_state('input_select.irrigation_vegetable_garden_control_mode', 'auto') %}
+            Not in auto mode
+          {% elif not is_state('binary_sensor.irrigation_vegetable_garden_controller_online', 'on') %}
+            Controller offline
+          {% elif valve in ['unknown', 'unavailable', 'none', ''] %}
+            Valve status unknown
+          {% elif valve != 'idle' %}
+            Valve {{ valve }}
+          {% elif ns.enabled | length == 0 %}
+            No sensors enabled
+          {% else %}
+            {% for i in ns.enabled %}
+              {% if not is_state('binary_sensor.irrigation_vegetable_garden_sensor_' ~ i ~ '_fresh', 'on') %}
+                {% set ns.stale = true %}
+              {% endif %}
+            {% endfor %}
+            {% if ns.stale %}
+              Sensor stale or unavailable
+            {% else %}
+              {% for i in ns.enabled %}
+                {% set v = states('sensor.irrigation_vegetable_garden_sensor_' ~ i ~ '_vwc') | float(0) %}
+                {% set mn = states('input_number.irrigation_vegetable_garden_sensor' ~ i ~ '_min_vwc') | float(35) %}
+                {% set mx = states('input_number.irrigation_vegetable_garden_sensor' ~ i ~ '_max_vwc') | float(50) %}
+                {% if v >= mx %}
+                  {% set ns.at_max = true %}
+                {% elif v < mn %}
+                  {% set ns.all_ok = false %}
+                {% endif %}
+                {% set ns.ok_parts = ns.ok_parts + ['S' ~ i ~ ' ' ~ (v | round(1)) ~ '%'] %}
+              {% endfor %}
+              {% if ns.at_max %}
+                At or above max VWC
+              {% elif ns.all_ok %}
+                Moisture OK ({{ ns.ok_parts | join(' · ') }})
+              {% else %}
+                Ready
+              {% endif %}
+            {% endif %}
+          {% endif %}
+
+  - trigger:
+      - platform: state
+        entity_id:
+          - sensor.irrigation_vegetable_garden_auto_block_reason
+          - sensor.irrigation_vegetable_garden_valve_state_resolved
+          - binary_sensor.irrigation_vegetable_garden_controller_online
+          - input_select.irrigation_vegetable_garden_control_mode
+          - sensor.irrigation_vegetable_garden_error_code
+      - platform: time_pattern
+        seconds: "/15"
+    sensor:
+      # Plain-language operator status. Derived from auto_block_reason /
+      # valve_state_resolved / control_mode rather than recomputing sensor bands.
+      - name: Irrigation Water Status
+        unique_id: irrigation_vegetable_garden_water_status
+        icon: mdi:water-pump
+        state: |
+          {% set mode = states('input_select.irrigation_vegetable_garden_control_mode') %}
+          {% set online = is_state('binary_sensor.irrigation_vegetable_garden_controller_online', 'on') %}
+          {% set valve = states('sensor.irrigation_vegetable_garden_valve_state_resolved') %}
+          {% set reason = states('sensor.irrigation_vegetable_garden_auto_block_reason') %}
+          {% if valve == 'fault' %}
+            Error
+          {% elif not online %}
+            Offline
+          {% elif valve in ['unknown', 'unavailable', 'none', ''] %}
+            Offline
+          {% elif valve == 'pulsing' %}
+            Watering Now
+          {% elif valve == 'settling' %}
+            Not Watering
+          {% elif mode != 'auto' %}
+            Blocked
+          {% elif reason in ['No sensors enabled', 'Sensor stale or unavailable'] %}
+            Blocked
+          {% else %}
+            Not Watering
+          {% endif %}
+        attributes:
+          reason: |
+            {% set mode = states('input_select.irrigation_vegetable_garden_control_mode') %}
+            {% set online = is_state('binary_sensor.irrigation_vegetable_garden_controller_online', 'on') %}
+            {% set valve = states('sensor.irrigation_vegetable_garden_valve_state_resolved') %}
+            {% set reason = states('sensor.irrigation_vegetable_garden_auto_block_reason') %}
+            {% if valve == 'fault' %}
+              error code present ({{ states('sensor.irrigation_vegetable_garden_error_code') }})
+            {% elif not online %}
+              controller offline
+            {% elif valve in ['unknown', 'unavailable', 'none', ''] %}
+              valve telemetry stale
+            {% elif valve == 'pulsing' %}
+              pulsing
+            {% elif valve == 'settling' %}
+              settling
+            {% elif reason == 'Ready' %}
+              ready (standing by)
+            {% elif mode == 'manual' %}
+              manual mode
+            {% elif mode == 'disabled' %}
+              auto disabled
+            {% elif reason == 'No sensors enabled' %}
+              no enabled sensors calling for water
+            {% elif reason == 'Sensor stale or unavailable' %}
+              sensor data stale
+            {% elif reason.startswith('At or above max VWC') %}
+              at max moisture
+            {% elif reason.startswith('Moisture OK') %}
+              no demand
+            {% else %}
+              {{ reason }}
+            {% endif %}
+          action: |
+            {% set valve = states('sensor.irrigation_vegetable_garden_valve_state_resolved') %}
+            {% if valve == 'pulsing' %}
+              Pulsing
+            {% else %}
+              —
+            {% endif %}
+          resume_hint: |
+            {% set mode = states('input_select.irrigation_vegetable_garden_control_mode') %}
+            {% set online = is_state('binary_sensor.irrigation_vegetable_garden_controller_online', 'on') %}
+            {% set valve = states('sensor.irrigation_vegetable_garden_valve_state_resolved') %}
+            {% set reason = states('sensor.irrigation_vegetable_garden_auto_block_reason') %}
+            {% if valve == 'fault' %}
+              Resume blocked until fault is cleared
+            {% elif not online %}
+              Resume blocked until controller reconnects
+            {% elif valve in ['unknown', 'unavailable', 'none', ''] %}
+              Resume blocked until valve telemetry resumes
+            {% elif valve in ['pulsing', 'settling'] %}
+              —
+            {% elif mode != 'auto' %}
+              Resume blocked until mode returns to Auto
+            {% elif reason == 'Ready' %}
+              —
+            {% elif reason == 'No sensors enabled' %}
+              Enable at least one sensor to resume automatic watering
+            {% elif reason == 'Sensor stale or unavailable' %}
+              Resume blocked until sensor data is fresh
+            {% elif reason.startswith('At or above max VWC') %}
+              Will resume when moisture drops below the max threshold
+            {% else %}
+              Will resume when any enabled sensor falls below its lower threshold
+            {% endif %}
+
+  # Moisture chart event-overlay rows — use resolved valve state so overlays
+  # do not stick on after stale MQTT telemetry.
+  - binary_sensor:
+      - name: Irrigation Is Watering
+        unique_id: irrigation_vegetable_garden_is_watering
+        icon: mdi:water
+        state: "{{ is_state('sensor.irrigation_vegetable_garden_valve_state_resolved', 'pulsing') }}"
+      - name: Irrigation Is Settling
+        unique_id: irrigation_vegetable_garden_is_settling
+        icon: mdi:timer-sand
+        state: "{{ is_state('sensor.irrigation_vegetable_garden_valve_state_resolved', 'settling') }}"
+      - name: Irrigation Has Error
+        unique_id: irrigation_vegetable_garden_has_error
+        icon: mdi:alert-circle
+        state: "{{ is_state('sensor.irrigation_vegetable_garden_valve_state_resolved', 'fault') }}"
+
+script:
+  irrigation_vegetable_garden_sync_firmware:
+    alias: Irrigation Sync Firmware
+    mode: restart
+    sequence:
+      - condition: template
+        value_template: >-
+          {{ states('input_number.irrigation_vegetable_garden_settle_min') not in ['unknown', 'unavailable', 'none', ''] and
+             states('input_number.irrigation_vegetable_garden_max_pulse_min') not in ['unknown', 'unavailable', 'none', ''] and
+             states('input_number.irrigation_vegetable_garden_failsafe_disconnect_min') not in ['unknown', 'unavailable', 'none', ''] }}
+      - service: mqtt.publish
+        data:
+          topic: irrigation/vegetable_garden/valve/command
+          payload: '{"action":"configure","settle_duration_s":{{ states(''input_number.irrigation_vegetable_garden_settle_min'') | int * 60 }},"max_pulse_duration_s":{{ states(''input_number.irrigation_vegetable_garden_max_pulse_min'') | int * 60 }},"failsafe_disconnect_s":{{ states(''input_number.irrigation_vegetable_garden_failsafe_disconnect_min'') | int * 60 }}}'
+
+  irrigation_vegetable_garden_request_pulse:
+    alias: Irrigation Request Pulse
+    mode: single
+    sequence:
+      - if:
+          - condition: state
+            entity_id: binary_sensor.irrigation_vegetable_garden_controller_online
+            state: "off"
+        then:
+          - service: persistent_notification.create
+            data:
+              title: Irrigation Command Blocked
+              notification_id: irrigation_vegetable_garden_command_blocked
+              message: "Pulse request not sent — controller is offline."
+          - stop: "Controller offline"
+      - if:
+          - condition: state
+            entity_id: input_select.irrigation_vegetable_garden_control_mode
+            state: disabled
+        then:
+          - service: persistent_notification.create
+            data:
+              title: Irrigation Command Blocked
+              notification_id: irrigation_vegetable_garden_command_blocked
+              message: "Pulse request not sent — set mode to Manual or Auto first."
+          - stop: "Irrigation disabled"
+      - service: script.turn_on
+        target:
+          entity_id: script.irrigation_vegetable_garden_sync_firmware
+      - delay: "00:00:01"
+      - variables:
+          deficit: |
+            {% set ns = namespace(max_def=0) %}
+            {% for i in range(6) %}
+              {% if is_state('input_boolean.irrigation_vegetable_garden_sensor_' ~ i ~ '_enabled', 'on') %}
+                {% set s = states('sensor.irrigation_vegetable_garden_sensor_' ~ i ~ '_vwc') | float(0) %}
+                {% set t = states('input_number.irrigation_vegetable_garden_sensor' ~ i ~ '_target_vwc') | float(44) %}
+                {% set r = states('input_number.irrigation_vegetable_garden_sensor' ~ i ~ '_min_vwc') | float(35) %}
+                {% set span = [1, t - r] | max %}
+                {% set d = ((t - s) / span) | float(0) %}
+                {% if d > ns.max_def %}{% set ns.max_def = d %}{% endif %}
+              {% endif %}
+            {% endfor %}
+            {{ ns.max_def | round(3) }}
+          min_p: "{{ states('input_number.irrigation_vegetable_garden_min_pulse_min') | int(3) }}"
+          max_p: "{{ states('input_number.irrigation_vegetable_garden_max_pulse_min') | int(60) }}"
+          pulse_min: "{{ min(max_p, max(min_p, (min_p + (max_p - min_p) * [deficit | float(0), 1] | min) | int)) }}"
+          pulse_s: "{{ pulse_min | int * 60 }}"
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.irrigation_vegetable_garden_last_requested_pulse_s
+        data:
+          value: "{{ pulse_s | int }}"
+      - service: mqtt.publish
+        data:
+          topic: irrigation/vegetable_garden/valve/command
+          payload: '{"action":"pulse","pulse_duration_s":{{ pulse_s }}}'
+
+  irrigation_vegetable_garden_force_close:
+    alias: Irrigation Force Close
+    mode: single
+    sequence:
+      - if:
+          - condition: state
+            entity_id: binary_sensor.irrigation_vegetable_garden_controller_online
+            state: "off"
+        then:
+          - service: persistent_notification.create
+            data:
+              title: Irrigation Command Blocked
+              notification_id: irrigation_vegetable_garden_command_blocked
+              message: "Close request not sent — controller is offline."
+          - stop: "Controller offline"
+      - service: mqtt.publish
+        data:
+          topic: irrigation/vegetable_garden/valve/command
+          payload: '{"action":"close"}'
+
+  irrigation_vegetable_garden_manual_close:
+    alias: Irrigation Manual Close
+    mode: single
+    sequence:
+      - service: input_text.set_value
+        target:
+          entity_id: input_text.irrigation_vegetable_garden_last_stop_reason
+        data:
+          value: Manual stop
+      - service: script.turn_on
+        target:
+          entity_id: script.irrigation_vegetable_garden_force_close
+
+  irrigation_vegetable_garden_clear_fault:
+    alias: Irrigation Clear Fault
+    mode: single
+    sequence:
+      - service: mqtt.publish
+        data:
+          topic: irrigation/vegetable_garden/valve/command
+          payload: '{"action":"clear_fault"}'
+
+  irrigation_vegetable_garden_calibrate_sensor_to_reference:
+    alias: Calibrate Sensor to Reference
+    mode: single
+    fields:
+      source:
+        name: Source sensor
+        required: true
+        selector:
+          number:
+            min: 0
+            max: 5
+            mode: slider
+      reference:
+        name: Reference sensor
+        required: true
+        selector:
+          number:
+            min: 0
+            max: 5
+            mode: slider
+    sequence:
+      - variables:
+          src: "{{ source | int }}"
+          ref: "{{ reference | int }}"
+          raw: "{{ states('sensor.irrigation_vegetable_garden_sensor_' ~ src ~ '_vwc_raw') | float(0) }}"
+          target: "{{ states('sensor.irrigation_vegetable_garden_sensor_' ~ ref ~ '_vwc') | float(0) }}"
+          scale: "{{ states('input_number.irrigation_vegetable_garden_sensor' ~ src ~ '_vwc_scale') | float(1) }}"
+      - service: input_number.set_value
+        target:
+          entity_id: "input_number.irrigation_vegetable_garden_sensor{{ src }}_vwc_offset"
+        data:
+          value: "{{ (target - raw * scale) | round(1) }}"
+
+  irrigation_vegetable_garden_reset_sensor_calibration:
+    alias: Reset Sensor Calibration
+    mode: single
+    fields:
+      sensor:
+        name: Sensor
+        required: true
+        selector:
+          number:
+            min: 0
+            max: 5
+            mode: slider
+    sequence:
+      - variables:
+          idx: "{{ sensor | int }}"
+      - service: input_number.set_value
+        target:
+          entity_id: "input_number.irrigation_vegetable_garden_sensor{{ idx }}_vwc_scale"
+        data:
+          value: 1
+      - service: input_number.set_value
+        target:
+          entity_id: "input_number.irrigation_vegetable_garden_sensor{{ idx }}_vwc_offset"
+        data:
+          value: 0
+
+  irrigation_vegetable_garden_calibrate_sensor0_to_sensor1:
+    alias: Calibrate S0 to Match S1
+    mode: single
+    sequence:
+      - service: script.irrigation_vegetable_garden_calibrate_sensor_to_reference
+        data:
+          source: 0
+          reference: 1
+
+  irrigation_vegetable_garden_calibrate_sensor1_to_sensor0:
+    alias: Calibrate S1 to Match S0
+    mode: single
+    sequence:
+      - service: script.irrigation_vegetable_garden_calibrate_sensor_to_reference
+        data:
+          source: 1
+          reference: 0
+
+  irrigation_vegetable_garden_reset_sensor0_calibration:
+    alias: Reset S0 Calibration
+    mode: single
+    sequence:
+      - service: script.irrigation_vegetable_garden_reset_sensor_calibration
+        data:
+          sensor: 0
+
+  irrigation_vegetable_garden_reset_sensor1_calibration:
+    alias: Reset S1 Calibration
+    mode: single
+    sequence:
+      - service: script.irrigation_vegetable_garden_reset_sensor_calibration
+        data:
+          sensor: 1
+
+  irrigation_vegetable_garden_sync_targets_to_sensor0:
+    alias: Irrigation Sync Targets To Sensor 0
+    mode: single
+    sequence:
+      - variables:
+          min_v: "{{ states('input_number.irrigation_vegetable_garden_sensor0_min_vwc') | float(0) }}"
+          target_v: "{{ states('input_number.irrigation_vegetable_garden_sensor0_target_vwc') | float(0) }}"
+          max_v: "{{ states('input_number.irrigation_vegetable_garden_sensor0_max_vwc') | float(0) }}"
+      - repeat:
+          count: 5
+          sequence:
+            - variables:
+                idx: "{{ repeat.index }}"
+            - condition: template
+              value_template: "{{ is_state('input_boolean.irrigation_vegetable_garden_sensor_' ~ idx ~ '_enabled', 'on') }}"
+            - service: input_number.set_value
+              target:
+                entity_id: "input_number.irrigation_vegetable_garden_sensor{{ idx }}_min_vwc"
+              data:
+                value: "{{ min_v }}"
+            - service: input_number.set_value
+              target:
+                entity_id: "input_number.irrigation_vegetable_garden_sensor{{ idx }}_target_vwc"
+              data:
+                value: "{{ target_v }}"
+            - service: input_number.set_value
+              target:
+                entity_id: "input_number.irrigation_vegetable_garden_sensor{{ idx }}_max_vwc"
+              data:
+                value: "{{ max_v }}"
+
+  irrigation_vegetable_garden_log_settle_snapshot:
+    alias: Irrigation Log Settle Snapshot
+    mode: queued
+    sequence:
+      - variables:
+          sensor_rows: |
+            {% set ns = namespace(rows=[]) %}
+            {% for i in range(6) %}
+              {% if is_state('input_boolean.irrigation_vegetable_garden_sensor_' ~ i ~ '_enabled', 'on') %}
+                {% set sv = states('sensor.irrigation_vegetable_garden_sensor_' ~ i ~ '_vwc') %}
+                {% set valid = sv not in ['unknown', 'unavailable', 'none', ''] %}
+                {% set vwc = sv | float(0) if valid else 0 %}
+                {% set before = states('input_number.irrigation_vegetable_garden_pulse_start_s' ~ i ~ '_vwc') | float(0) %}
+                {% set ns.rows = ns.rows + [{'id': i, 'vwc': vwc, 'vwc_before': before, 'delta': (vwc - before) | round(2), 'valid': valid}] %}
+              {% endif %}
+            {% endfor %}
+            {{ ns.rows }}
+          gaps: |
+            {% set ns = namespace(missing=[]) %}
+            {% for row in sensor_rows %}
+              {% if not row.valid %}
+                {% set ns.missing = ns.missing + ['S' ~ row.id] %}
+              {% endif %}
+            {% endfor %}
+            {{ 'All enabled sensors recorded' if ns.missing | length == 0 else 'Missing: ' ~ (ns.missing | join(', ')) }}
+          actual_s: "{{ states('sensor.irrigation_vegetable_garden_actual_pulse_s') | int(0) }}"
+          requested_s: "{{ states('input_number.irrigation_vegetable_garden_last_requested_pulse_s') | int(0) }}"
+          log_msg: |
+            {% set ns = namespace(parts=[]) %}
+            {% for row in sensor_rows %}
+              {% set ns.parts = ns.parts + ['S' ~ row.id ~ '=' ~ (row.vwc ~ '% (Δ ' ~ row.delta ~ ')' if row.valid else 'stale/no reading')] %}
+            {% endfor %}
+            Settle end {{ ns.parts | join(' · ') }} pulse={{ actual_s }}s
+      - repeat:
+          count: 6
+          sequence:
+            - variables:
+                idx: "{{ repeat.index - 1 }}"
+            - condition: template
+              value_template: >-
+                {{ is_state('input_boolean.irrigation_vegetable_garden_sensor_' ~ idx ~ '_enabled', 'on') and
+                   states('sensor.irrigation_vegetable_garden_sensor_' ~ idx ~ '_vwc') not in ['unknown', 'unavailable', 'none', ''] }}
+            - service: input_number.set_value
+              target:
+                entity_id: "input_number.irrigation_vegetable_garden_last_settle_s{{ idx }}_vwc"
+              data:
+                value: "{{ states('sensor.irrigation_vegetable_garden_sensor_' ~ idx ~ '_vwc') | float(0) }}"
+      - service: input_text.set_value
+        target:
+          entity_id: input_text.irrigation_vegetable_garden_settle_snapshot_gaps
+        data:
+          value: "{{ gaps }}"
+      - service: input_datetime.set_datetime
+        target:
+          entity_id: input_datetime.irrigation_vegetable_garden_last_settle_at
+        data:
+          datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
+      - service: event.fire
+        data:
+          event_type: irrigation_vegetable_garden_settle_snapshot
+          event_data:
+            recorded_at: "{{ now().isoformat() }}"
+            sensors: "{{ sensor_rows }}"
+            actual_pulse_s: "{{ actual_s | int(0) }}"
+            requested_pulse_s: "{{ requested_s | int(0) }}"
+      - service: logbook.log
+        data:
+          name: Irrigation
+          entity_id: sensor.irrigation_vegetable_garden_valve_state
+          message: "{{ log_msg }}"
+
+  irrigation_vegetable_garden_update_time_remaining:
+    alias: Irrigation Update Time Remaining
+    mode: queued
+    sequence:
+      - variables:
+          phase: "{{ states('sensor.irrigation_vegetable_garden_valve_state_resolved') }}"
+          total_pulse: "{{ states('input_number.irrigation_vegetable_garden_last_requested_pulse_s') | int(0) }}"
+          total_settle: "{{ states('input_number.irrigation_vegetable_garden_settle_min') | int(20) * 60 }}"
+          pulse_started: "{{ as_timestamp(states('input_datetime.irrigation_vegetable_garden_pulse_started_at'), 0) }}"
+          settle_started: "{{ as_timestamp(states('input_datetime.irrigation_vegetable_garden_settle_started_at'), 0) }}"
+          now_ts: "{{ as_timestamp(now()) | int }}"
+          pulse_elapsed_fw: "{{ states('sensor.irrigation_vegetable_garden_pulse_elapsed_s') | int(0) }}"
+      - service: input_text.set_value
+        target:
+          entity_id: input_text.irrigation_vegetable_garden_cycle_time_remaining
+        data:
+          value: |
+            {% if phase == 'pulsing' %}
+            {% if pulse_started | int > 0 %}
+            {% set elapsed = now_ts | int - pulse_started | int %}
+            {% else %}
+            {% set elapsed = pulse_elapsed_fw | int %}
+            {% endif %}
+            {% set left = [0, total_pulse | int - elapsed] | max %}
+            Pulsing · {{ (left / 60) | int }}m {{ (left % 60) | int }}s left
+            {% elif phase == 'settling' %}
+            {% if settle_started | int > 0 %}
+            {% set elapsed = now_ts | int - settle_started | int %}
+            {% else %}
+            {% set elapsed = (now_ts | int - as_timestamp(states.sensor.irrigation_vegetable_garden_valve_state.last_changed)) | int %}
+            {% endif %}
+            {% set left = [0, total_settle | int - elapsed] | max %}
+            Settling · {{ (left / 60) | int }}m {{ (left % 60) | int }}s left
+            {% elif phase == 'fault' %}
+            Fault — clear to continue
+            {% else %}
+            —
+            {% endif %}
+
+automation:
+  - alias: Irrigation Sync On Connect
+    id: irrigation_vegetable_garden_sync_on_connect
+    trigger:
+      - platform: state
+        entity_id: binary_sensor.irrigation_vegetable_garden_controller_online
+        to: "on"
+    action:
+      - delay: "00:00:02"
+      - service: script.turn_on
+        target:
+          entity_id: script.irrigation_vegetable_garden_sync_firmware
+
+  - alias: Irrigation Sync On Start
+    id: irrigation_vegetable_garden_sync_on_start
+    trigger:
+      - platform: homeassistant
+        event: start
+    action:
+      - delay: "00:00:05"
+      - service: input_select.select_option
+        target:
+          entity_id: input_select.irrigation_vegetable_garden_control_mode
+        data:
+          option: auto
+      - service: script.turn_on
+        target:
+          entity_id: script.irrigation_vegetable_garden_sync_firmware
+
+  - alias: Irrigation Update Time Remaining
+    id: irrigation_vegetable_garden_update_time_remaining
+    mode: single
+    trigger:
+      - platform: time_pattern
+        seconds: "/5"
+      - platform: state
+        entity_id: sensor.irrigation_vegetable_garden_valve_state
+      - platform: mqtt
+        topic: irrigation/vegetable_garden/valve/telemetry
+      - platform: homeassistant
+        event: start
+    action:
+      - service: script.turn_on
+        target:
+          entity_id: script.irrigation_vegetable_garden_update_time_remaining
+
+  - alias: Irrigation Auto Request Pulse
+    id: irrigation_vegetable_garden_auto_request_pulse
+    mode: single
+    trigger:
+      - platform: state
+        entity_id: sensor.irrigation_vegetable_garden_auto_block_reason
+        to: Ready
+      - platform: time_pattern
+        minutes: "/5"
+        seconds: 0
+    condition:
+      - condition: state
+        entity_id: sensor.irrigation_vegetable_garden_auto_block_reason
+        state: Ready
+      - condition: state
+        entity_id: input_select.irrigation_vegetable_garden_control_mode
+        state: auto
+    action:
+      - service: script.turn_on
+        target:
+          entity_id: script.irrigation_vegetable_garden_request_pulse
+
+  - alias: Irrigation Record Settle Start
+    id: irrigation_vegetable_garden_record_settle_start
+    trigger:
+      - platform: state
+        entity_id: sensor.irrigation_vegetable_garden_valve_state
+        to: settling
+    action:
+      - service: input_datetime.set_datetime
+        target:
+          entity_id: input_datetime.irrigation_vegetable_garden_settle_started_at
+        data:
+          datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
+      - service: input_text.set_value
+        target:
+          entity_id: input_text.irrigation_vegetable_garden_last_stop_reason
+        data:
+          value: Pulse complete
+      - service: script.turn_on
+        target:
+          entity_id: script.irrigation_vegetable_garden_update_time_remaining
+
+  - alias: Irrigation Record Pulse Start Moisture
+    id: irrigation_vegetable_garden_record_pulse_start_moisture
+    trigger:
+      - platform: state
+        entity_id: sensor.irrigation_vegetable_garden_valve_state
+        to: pulsing
+    action:
+      - service: input_datetime.set_datetime
+        target:
+          entity_id: input_datetime.irrigation_vegetable_garden_pulse_started_at
+        data:
+          datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
+      - service: script.turn_on
+        target:
+          entity_id: script.irrigation_vegetable_garden_update_time_remaining
+      - repeat:
+          count: 6
+          sequence:
+            - variables:
+                idx: "{{ repeat.index - 1 }}"
+            - condition: template
+              value_template: "{{ is_state('input_boolean.irrigation_vegetable_garden_sensor_' ~ idx ~ '_enabled', 'on') }}"
+            - service: input_number.set_value
+              target:
+                entity_id: "input_number.irrigation_vegetable_garden_pulse_start_s{{ idx }}_vwc"
+              data:
+                value: "{{ states('sensor.irrigation_vegetable_garden_sensor_' ~ idx ~ '_vwc') | float(0) }}"
+
+  - alias: Irrigation Log Settle Snapshot
+    id: irrigation_vegetable_garden_log_settle_snapshot
+    trigger:
+      - platform: state
+        entity_id: sensor.irrigation_vegetable_garden_valve_state
+        from: settling
+        to: idle
+    action:
+      - service: script.turn_on
+        target:
+          entity_id: script.irrigation_vegetable_garden_log_settle_snapshot
+
+  - alias: Irrigation Stop On Max VWC
+    id: irrigation_vegetable_garden_stop_on_max_vwc
+    mode: restart
+    trigger:
+      - platform: state
+        entity_id:
+          - sensor.irrigation_vegetable_garden_sensor_0_vwc
+          - sensor.irrigation_vegetable_garden_sensor_1_vwc
+          - sensor.irrigation_vegetable_garden_sensor_2_vwc
+          - sensor.irrigation_vegetable_garden_sensor_3_vwc
+          - sensor.irrigation_vegetable_garden_sensor_4_vwc
+          - sensor.irrigation_vegetable_garden_sensor_5_vwc
+          - input_boolean.irrigation_vegetable_garden_sensor_0_enabled
+          - input_boolean.irrigation_vegetable_garden_sensor_1_enabled
+          - input_boolean.irrigation_vegetable_garden_sensor_2_enabled
+          - input_boolean.irrigation_vegetable_garden_sensor_3_enabled
+          - input_boolean.irrigation_vegetable_garden_sensor_4_enabled
+          - input_boolean.irrigation_vegetable_garden_sensor_5_enabled
+      - platform: time_pattern
+        seconds: "/30"
+    condition:
+      - condition: state
+        entity_id: sensor.irrigation_vegetable_garden_valve_state
+        state: pulsing
+      - condition: template
+        value_template: |
+          {% set ns = namespace(hit=false) %}
+          {% for i in range(6) %}
+            {% if is_state('input_boolean.irrigation_vegetable_garden_sensor_' ~ i ~ '_enabled', 'on') %}
+              {% set v = states('sensor.irrigation_vegetable_garden_sensor_' ~ i ~ '_vwc') | float(0) %}
+              {% set mx = states('input_number.irrigation_vegetable_garden_sensor' ~ i ~ '_max_vwc') | float(50) %}
+              {% if v >= mx %}{% set ns.hit = true %}{% endif %}
+            {% endif %}
+          {% endfor %}
+          {{ ns.hit }}
+    action:
+      - service: input_text.set_value
+        target:
+          entity_id: input_text.irrigation_vegetable_garden_last_stop_reason
+        data:
+          value: At max moisture
+      - service: script.turn_on
+        target:
+          entity_id: script.irrigation_vegetable_garden_force_close
+      - service: script.turn_on
+        target:
+          entity_id: script.irrigation_vegetable_garden_log_settle_snapshot
+
+  - alias: Irrigation Valve Fault Alert
+    id: irrigation_vegetable_garden_valve_fault_alert
+    trigger:
+      - platform: state
+        entity_id: sensor.irrigation_vegetable_garden_valve_state
+        to: fault
+    action:
+      - service: input_text.set_value
+        target:
+          entity_id: input_text.irrigation_vegetable_garden_last_stop_reason
+        data:
+          value: "Fault: {{ states('sensor.irrigation_vegetable_garden_error_code') }}"
+      - service: persistent_notification.create
+        data:
+          title: Irrigation Fault
+          message: "{{ states('sensor.irrigation_vegetable_garden_error_code') }} — clear fault on dashboard"

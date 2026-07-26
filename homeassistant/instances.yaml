@@ -1,0 +1,14 @@
+# Controllers managed by this Home Assistant.
+# Each entry renders instance-scoped packages + a dashboard.
+#
+# id:   IRRIGATION_INSTANCE_ID in firmware secrets.h (stable, unique on broker)
+# name: IRRIGATION_INSTANCE_NAME (human-readable device / dashboard title)
+#
+# After editing: python3 scripts/render_ha_instances.py
+# Then deploy generated files under homeassistant/packages/ and dashboards/.
+
+instances:
+  - id: raised_bed
+    name: Raised Bed
+  - id: vegetable_garden
+    name: Vegetable Garden

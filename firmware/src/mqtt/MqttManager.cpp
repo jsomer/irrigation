@@ -2,50 +2,62 @@
 #include "../log.h"
 #include <cstring>
 #include <cstdio>
+#include <cctype>
 
 static const char* TAG = "MqttManager";
-
-// Shared device block appended to every discovery payload.
-// Produces a single "Irrigation Controller" device in HA's device registry.
-static const char DEVICE_BLOCK[] =
-  "\"device\":{"
-    "\"identifiers\":[\"irrigation_uno_r4\"],"
-    "\"name\":\"Irrigation Controller\","
-    "\"model\":\"UNO R4 WiFi\","
-    "\"manufacturer\":\"Arduino\""
-  "}";
-
-// Availability fields shared by all MQTT entities.
-static const char AVAIL_BLOCK[] =
-  "\"availability_topic\":\"" MQTT_ROOT "/valve/" MQTT_TOPIC_STATUS "\","
-  "\"payload_available\":\"online\","
-  "\"payload_not_available\":\"offline\"";
 
 MqttManager* MqttManager::_instance = nullptr;
 
 MqttManager::MqttManager(const char* broker, uint16_t port,
                          const char* user, const char* password,
+                         const char* instanceId, const char* instanceName,
                          uint8_t sensorCount)
   : _mqtt(_wifiClient)
   , _broker(broker)
   , _port(port)
   , _user(user)
   , _password(password)
-  , _clientId(nullptr)
+  , _instanceId(instanceId)
+  , _instanceName(instanceName)
   , _sensorCount(sensorCount)
   , _lastConnectedMs(0)
   , _lastReconnectAttemptMs(0)
   , _hasEverConnected(false)
 {
   _instance = this;
+  _normalizedInstanceId[0] = '\0';
+  _mqttRoot[0] = '\0';
+  _clientId[0] = '\0';
+  _haNodeId[0] = '\0';
 }
 
-void MqttManager::begin(const char* clientId) {
-  _clientId = clientId;
+void MqttManager::begin() {
+  size_t out = 0;
+  for (size_t in = 0; _instanceId[in] && out < sizeof(_normalizedInstanceId) - 1; in++) {
+    char c = static_cast<char>(tolower(static_cast<unsigned char>(_instanceId[in])));
+    if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_' || c == '-') {
+      _normalizedInstanceId[out++] = c;
+    } else {
+      _normalizedInstanceId[out++] = '_';
+      LOG_W(TAG, "Invalid instance ID character replaced with '_'");
+    }
+  }
+  _normalizedInstanceId[out] = '\0';
+  if (out == 0) {
+    snprintf(_normalizedInstanceId, sizeof(_normalizedInstanceId), "controller");
+    LOG_E(TAG, "Empty instance ID; using 'controller'");
+  }
+
+  snprintf(_mqttRoot, sizeof(_mqttRoot), MQTT_ROOT_PREFIX "/%s", _normalizedInstanceId);
+  snprintf(_clientId, sizeof(_clientId), MQTT_ROOT_PREFIX "-%s", _normalizedInstanceId);
+  snprintf(_haNodeId, sizeof(_haNodeId), MQTT_ROOT_PREFIX "_%s", _normalizedInstanceId);
+
+  LOG_I(TAG, "Instance=%s root=%s client=%s",
+        _normalizedInstanceId, _mqttRoot, _clientId);
   _lastConnectedMs = millis();
   _mqtt.setServer(_broker, _port);
   _mqtt.setCallback(MqttManager::onMqttMessage);
-  _mqtt.setBufferSize(768);   // large enough for discovery payloads (~600 B)
+  _mqtt.setBufferSize(1024);  // discovery payload + instance-scoped identifiers
   _mqtt.setKeepAlive(30);
 }
 
@@ -82,13 +94,21 @@ void MqttManager::publishDiscovery() {
   if (!_mqtt.connected()) return;
   LOG_I(TAG, "Publishing MQTT discovery configs");
 
-  discoverValveCounter("Irrigation Valve Pulse Count",
-                       "irrigation_valve_pulse_count",
+  for (uint8_t sensorId = 0; sensorId < _sensorCount; sensorId++) {
+    discoverSensorVwc(sensorId);
+  }
+  discoverControllerOnline();
+  discoverValveOpen();
+  discoverValveState();
+  discoverValveErrorCode();
+
+  discoverValveCounter("Valve Pulse Count",
+                       "valve_pulse_count",
                        "pulse_count", "total_increasing", "",
                        "mdi:counter");
 
-  discoverValveCounter("Irrigation Pulse Elapsed Seconds",
-                       "irrigation_pulse_elapsed_s",
+  discoverValveCounter("Pulse Elapsed Seconds",
+                       "pulse_elapsed_s",
                        "pulse_elapsed_s", "measurement", "s",
                        "mdi:timer-sand");
 
@@ -96,20 +116,28 @@ void MqttManager::publishDiscovery() {
   discoverValveConfigured();
   discoverValveConfigSource();
 
-  discoverButton("Irrigation Valve Close",  "irrigation_valve_close",
+  discoverButton("Valve Close",  "valve_close",
                  "close",       "mdi:valve-closed");
-  discoverButton("Irrigation Clear Fault",  "irrigation_clear_fault",
+  discoverButton("Clear Fault",  "clear_fault",
                  "clear_fault", "mdi:alert-remove-outline");
 }
 
 void MqttManager::discoverSensorVwc(uint8_t sensorId) {
-  char payload[640];
+  char localId[32], localName[32], id[80], name[96], avail[192], device[256];
+  snprintf(localId, sizeof(localId), "sensor_%d_vwc", sensorId);
+  snprintf(localName, sizeof(localName), "Sensor %d VWC", sensorId);
+  entityId(id, sizeof(id), localId);
+  entityName(name, sizeof(name), localName);
+  availabilityBlock(avail, sizeof(avail));
+  deviceBlock(device, sizeof(device));
+
+  char payload[768];
   snprintf(payload, sizeof(payload),
     "{"
-      "\"name\":\"Irrigation Sensor %d VWC\","
-      "\"object_id\":\"irrigation_sensor_%d_vwc\","
-      "\"unique_id\":\"irrigation_sensor_%d_vwc\","
-      "\"state_topic\":\"" MQTT_ROOT "/sensor/%d/" MQTT_TOPIC_TELEMETRY "\","
+      "\"name\":\"%s\","
+      "\"object_id\":\"%s\","
+      "\"unique_id\":\"%s\","
+      "\"state_topic\":\"%s/sensor/%d/" MQTT_TOPIC_TELEMETRY "\","
       "\"value_template\":\"{{ value_json.vwc }}\","
       "\"unit_of_measurement\":\"%%\","
       "\"state_class\":\"measurement\","
@@ -117,40 +145,48 @@ void MqttManager::discoverSensorVwc(uint8_t sensorId) {
       "%s,"
       "%s"
     "}",
-    sensorId, sensorId, sensorId, sensorId,
-    AVAIL_BLOCK, DEVICE_BLOCK);
+    name, id, id, _mqttRoot, sensorId, avail, device);
 
-  char objectId[40];
-  snprintf(objectId, sizeof(objectId), "irrigation_sensor_%d_vwc", sensorId);
-  publishDiscoveryMsg("sensor", objectId, payload);
+  publishDiscoveryMsg("sensor", localId, payload);
 }
 
 void MqttManager::discoverControllerOnline() {
-  char payload[512];
+  char id[80], name[96], device[256];
+  entityId(id, sizeof(id), "controller_online");
+  entityName(name, sizeof(name), "Controller Online");
+  deviceBlock(device, sizeof(device));
+
+  char payload[640];
   snprintf(payload, sizeof(payload),
     "{"
-      "\"name\":\"Irrigation Controller Online\","
-      "\"object_id\":\"irrigation_controller_online\","
-      "\"unique_id\":\"irrigation_controller_online\","
-      "\"state_topic\":\"" MQTT_ROOT "/valve/" MQTT_TOPIC_STATUS "\","
+      "\"name\":\"%s\","
+      "\"object_id\":\"%s\","
+      "\"unique_id\":\"%s\","
+      "\"state_topic\":\"%s/valve/" MQTT_TOPIC_STATUS "\","
       "\"payload_on\":\"online\","
       "\"payload_off\":\"offline\","
       "\"device_class\":\"connectivity\","
       "%s"
     "}",
-    DEVICE_BLOCK);
+    name, id, id, _mqttRoot, device);
 
-  publishDiscoveryMsg("binary_sensor", "irrigation_controller_online", payload);
+  publishDiscoveryMsg("binary_sensor", "controller_online", payload);
 }
 
 void MqttManager::discoverValveOpen() {
-  char payload[600];
+  char id[80], name[96], avail[192], device[256];
+  entityId(id, sizeof(id), "valve");
+  entityName(name, sizeof(name), "Valve");
+  availabilityBlock(avail, sizeof(avail));
+  deviceBlock(device, sizeof(device));
+
+  char payload[768];
   snprintf(payload, sizeof(payload),
     "{"
-      "\"name\":\"Irrigation Valve\","
-      "\"object_id\":\"irrigation_valve\","
-      "\"unique_id\":\"irrigation_valve\","
-      "\"state_topic\":\"" MQTT_ROOT "/valve/" MQTT_TOPIC_TELEMETRY "\","
+      "\"name\":\"%s\","
+      "\"object_id\":\"%s\","
+      "\"unique_id\":\"%s\","
+      "\"state_topic\":\"%s/valve/" MQTT_TOPIC_TELEMETRY "\","
       "\"value_template\":\"{{ value_json.valve_open }}\","
       "\"payload_on\":\"true\","
       "\"payload_off\":\"false\","
@@ -158,44 +194,56 @@ void MqttManager::discoverValveOpen() {
       "%s,"
       "%s"
     "}",
-    AVAIL_BLOCK, DEVICE_BLOCK);
+    name, id, id, _mqttRoot, avail, device);
 
-  publishDiscoveryMsg("binary_sensor", "irrigation_valve", payload);
+  publishDiscoveryMsg("binary_sensor", "valve", payload);
 }
 
 void MqttManager::discoverValveState() {
-  char payload[600];
-  snprintf(payload, sizeof(payload),
-    "{"
-      "\"name\":\"Irrigation Valve State\","
-      "\"object_id\":\"irrigation_valve_state\","
-      "\"unique_id\":\"irrigation_valve_state\","
-      "\"state_topic\":\"" MQTT_ROOT "/valve/" MQTT_TOPIC_TELEMETRY "\","
-      "\"value_template\":\"{{ value_json.state }}\","
-      "\"icon\":\"mdi:valve\","
-      "%s,"
-      "%s"
-    "}",
-    AVAIL_BLOCK, DEVICE_BLOCK);
+  char id[80], name[96], avail[192], device[256];
+  entityId(id, sizeof(id), "valve_state");
+  entityName(name, sizeof(name), "Valve State");
+  availabilityBlock(avail, sizeof(avail));
+  deviceBlock(device, sizeof(device));
 
-  publishDiscoveryMsg("sensor", "irrigation_valve_state", payload);
-}
-
-void MqttManager::discoverValveCounter(const char* name, const char* objectId,
-                                       const char* field, const char* stateClass,
-                                       const char* unit, const char* icon) {
-  char unitField[48] = "";
-  if (unit && unit[0]) {
-    snprintf(unitField, sizeof(unitField), "\"unit_of_measurement\":\"%s\",", unit);
-  }
-
-  char payload[640];
+  char payload[768];
   snprintf(payload, sizeof(payload),
     "{"
       "\"name\":\"%s\","
       "\"object_id\":\"%s\","
       "\"unique_id\":\"%s\","
-      "\"state_topic\":\"" MQTT_ROOT "/valve/" MQTT_TOPIC_TELEMETRY "\","
+      "\"state_topic\":\"%s/valve/" MQTT_TOPIC_TELEMETRY "\","
+      "\"value_template\":\"{{ value_json.state }}\","
+      "\"icon\":\"mdi:valve\","
+      "%s,"
+      "%s"
+    "}",
+    name, id, id, _mqttRoot, avail, device);
+
+  publishDiscoveryMsg("sensor", "valve_state", payload);
+}
+
+void MqttManager::discoverValveCounter(const char* name, const char* objectId,
+                                       const char* field, const char* stateClass,
+                                       const char* unit, const char* icon) {
+  char id[80], displayName[96], avail[192], device[256];
+  entityId(id, sizeof(id), objectId);
+  entityName(displayName, sizeof(displayName), name);
+  availabilityBlock(avail, sizeof(avail));
+  deviceBlock(device, sizeof(device));
+
+  char unitField[48] = "";
+  if (unit && unit[0]) {
+    snprintf(unitField, sizeof(unitField), "\"unit_of_measurement\":\"%s\",", unit);
+  }
+
+  char payload[768];
+  snprintf(payload, sizeof(payload),
+    "{"
+      "\"name\":\"%s\","
+      "\"object_id\":\"%s\","
+      "\"unique_id\":\"%s\","
+      "\"state_topic\":\"%s/valve/" MQTT_TOPIC_TELEMETRY "\","
       "\"value_template\":\"{{ value_json.%s }}\","
       "%s"
       "\"state_class\":\"%s\","
@@ -203,116 +251,143 @@ void MqttManager::discoverValveCounter(const char* name, const char* objectId,
       "%s,"
       "%s"
     "}",
-    name, objectId, objectId, field,
+    displayName, id, id, _mqttRoot, field,
     unitField, stateClass, icon,
-    AVAIL_BLOCK, DEVICE_BLOCK);
+    avail, device);
 
   publishDiscoveryMsg("sensor", objectId, payload);
 }
 
 
 void MqttManager::discoverValveFaultReason() {
-  char payload[600];
+  char id[80], name[96], avail[192], device[256];
+  entityId(id, sizeof(id), "fault_reason");
+  entityName(name, sizeof(name), "Fault Reason");
+  availabilityBlock(avail, sizeof(avail));
+  deviceBlock(device, sizeof(device));
+  char payload[768];
   snprintf(payload, sizeof(payload),
     "{"
-      "\"name\":\"Irrigation Fault Reason\","
-      "\"object_id\":\"irrigation_fault_reason\","
-      "\"unique_id\":\"irrigation_fault_reason\","
-      "\"state_topic\":\"" MQTT_ROOT "/valve/" MQTT_TOPIC_TELEMETRY "\","
+      "\"name\":\"%s\","
+      "\"object_id\":\"%s\","
+      "\"unique_id\":\"%s\","
+      "\"state_topic\":\"%s/valve/" MQTT_TOPIC_TELEMETRY "\","
       "\"value_template\":\"{{ value_json.fault_reason | default('') }}\","
       "\"icon\":\"mdi:alert-outline\","
       "%s,"
       "%s"
     "}",
-    AVAIL_BLOCK, DEVICE_BLOCK);
+    name, id, id, _mqttRoot, avail, device);
 
-  publishDiscoveryMsg("sensor", "irrigation_fault_reason", payload);
+  publishDiscoveryMsg("sensor", "fault_reason", payload);
 }
 
 void MqttManager::discoverValveConfigured() {
-  char payload[640];
+  char id[80], name[96], avail[192], device[256];
+  entityId(id, sizeof(id), "firmware_configured");
+  entityName(name, sizeof(name), "Firmware Configured");
+  availabilityBlock(avail, sizeof(avail));
+  deviceBlock(device, sizeof(device));
+  char payload[768];
   snprintf(payload, sizeof(payload),
     "{"
-      "\"name\":\"Irrigation Firmware Configured\","
-      "\"object_id\":\"irrigation_firmware_configured\","
-      "\"unique_id\":\"irrigation_firmware_configured\","
-      "\"state_topic\":\"" MQTT_ROOT "/valve/" MQTT_TOPIC_TELEMETRY "\","
+      "\"name\":\"%s\","
+      "\"object_id\":\"%s\","
+      "\"unique_id\":\"%s\","
+      "\"state_topic\":\"%s/valve/" MQTT_TOPIC_TELEMETRY "\","
       "\"value_template\":\"{{ value_json.configured }}\","
       "\"icon\":\"mdi:check-circle-outline\","
       "%s,"
       "%s"
     "}",
-    AVAIL_BLOCK, DEVICE_BLOCK);
+    name, id, id, _mqttRoot, avail, device);
 
-  publishDiscoveryMsg("binary_sensor", "irrigation_firmware_configured", payload);
+  publishDiscoveryMsg("binary_sensor", "firmware_configured", payload);
 }
 
 void MqttManager::discoverValveConfigSource() {
-  char payload[640];
+  char id[80], name[96], avail[192], device[256];
+  entityId(id, sizeof(id), "config_source");
+  entityName(name, sizeof(name), "Config Source");
+  availabilityBlock(avail, sizeof(avail));
+  deviceBlock(device, sizeof(device));
+  char payload[768];
   snprintf(payload, sizeof(payload),
     "{"
-      "\"name\":\"Irrigation Config Source\","
-      "\"object_id\":\"irrigation_config_source\","
-      "\"unique_id\":\"irrigation_config_source\","
-      "\"state_topic\":\"" MQTT_ROOT "/valve/" MQTT_TOPIC_TELEMETRY "\","
+      "\"name\":\"%s\","
+      "\"object_id\":\"%s\","
+      "\"unique_id\":\"%s\","
+      "\"state_topic\":\"%s/valve/" MQTT_TOPIC_TELEMETRY "\","
       "\"value_template\":\"{{ value_json.config_source }}\","
       "\"icon\":\"mdi:database-outline\","
       "%s,"
       "%s"
     "}",
-    AVAIL_BLOCK, DEVICE_BLOCK);
+    name, id, id, _mqttRoot, avail, device);
 
-  publishDiscoveryMsg("sensor", "irrigation_config_source", payload);
+  publishDiscoveryMsg("sensor", "config_source", payload);
 }
 
 void MqttManager::discoverValveErrorCode() {
-  char payload[600];
+  char id[80], name[96], avail[192], device[256];
+  entityId(id, sizeof(id), "error_code");
+  entityName(name, sizeof(name), "Error Code");
+  availabilityBlock(avail, sizeof(avail));
+  deviceBlock(device, sizeof(device));
+  char payload[768];
   snprintf(payload, sizeof(payload),
     "{"
-      "\"name\":\"Irrigation Error Code\","
-      "\"object_id\":\"irrigation_error_code\","
-      "\"unique_id\":\"irrigation_error_code\","
-      "\"state_topic\":\"" MQTT_ROOT "/valve/" MQTT_TOPIC_TELEMETRY "\","
+      "\"name\":\"%s\","
+      "\"object_id\":\"%s\","
+      "\"unique_id\":\"%s\","
+      "\"state_topic\":\"%s/valve/" MQTT_TOPIC_TELEMETRY "\","
       "\"value_template\":\"{{ value_json.error_code }}\","
       "\"icon\":\"mdi:alert-circle-outline\","
       "%s,"
       "%s"
     "}",
-    AVAIL_BLOCK, DEVICE_BLOCK);
+    name, id, id, _mqttRoot, avail, device);
 
-  publishDiscoveryMsg("sensor", "irrigation_error_code", payload);
+  publishDiscoveryMsg("sensor", "error_code", payload);
 }
 
 void MqttManager::discoverButton(const char* name, const char* objectId,
                                  const char* action, const char* icon) {
+  char id[80], displayName[96], avail[192], device[256];
+  entityId(id, sizeof(id), objectId);
+  entityName(displayName, sizeof(displayName), name);
+  availabilityBlock(avail, sizeof(avail));
+  deviceBlock(device, sizeof(device));
+
   // payload_press is a JSON string embedded inside the outer JSON object.
   // Inner quotes must be escaped: {"action":"pulse"} → {\"action\":\"pulse\"}
   char escapedPayload[64];
   snprintf(escapedPayload, sizeof(escapedPayload),
            "{\\\"action\\\":\\\"%s\\\"}", action);
 
-  char payload[600];
+  char payload[768];
   snprintf(payload, sizeof(payload),
     "{"
       "\"name\":\"%s\","
       "\"object_id\":\"%s\","
       "\"unique_id\":\"%s\","
-      "\"command_topic\":\"" MQTT_ROOT "/valve/" MQTT_TOPIC_COMMAND "\","
+      "\"command_topic\":\"%s/valve/" MQTT_TOPIC_COMMAND "\","
       "\"payload_press\":\"%s\","
       "\"icon\":\"%s\","
       "%s,"
       "%s"
     "}",
-    name, objectId, objectId, escapedPayload, icon,
-    AVAIL_BLOCK, DEVICE_BLOCK);
+    displayName, id, id, _mqttRoot, escapedPayload, icon,
+    avail, device);
 
   publishDiscoveryMsg("button", objectId, payload);
 }
 
 void MqttManager::publishDiscoveryMsg(const char* domain, const char* objectId,
                                       const char* payload) {
-  char topic[96];
-  snprintf(topic, sizeof(topic), "homeassistant/%s/%s/config", domain, objectId);
+  char topic[144];
+  snprintf(topic, sizeof(topic), "homeassistant/%s/%s/%s/config",
+           domain, _haNodeId, objectId);
   bool ok = _mqtt.publish(topic, payload, true);  // retained
   if (!ok) {
     LOG_W(TAG, "Discovery publish failed for %s (payload len=%d)",
@@ -411,11 +486,38 @@ void MqttManager::subscribeAll() {
 
 void MqttManager::sensorTopic(char* buf, size_t len,
                                uint8_t sensorId, const char* suffix) const {
-  snprintf(buf, len, "%s/sensor/%d/%s", MQTT_ROOT, sensorId, suffix);
+  snprintf(buf, len, "%s/sensor/%d/%s", _mqttRoot, sensorId, suffix);
 }
 
 void MqttManager::valveTopic(char* buf, size_t len, const char* suffix) const {
-  snprintf(buf, len, "%s/valve/%s", MQTT_ROOT, suffix);
+  snprintf(buf, len, "%s/valve/%s", _mqttRoot, suffix);
+}
+
+void MqttManager::entityId(char* buf, size_t len, const char* localId) const {
+  snprintf(buf, len, "%s_%s", _haNodeId, localId);
+}
+
+void MqttManager::entityName(char* buf, size_t len, const char* localName) const {
+  snprintf(buf, len, "%s %s", _instanceName, localName);
+}
+
+void MqttManager::deviceBlock(char* buf, size_t len) const {
+  snprintf(buf, len,
+    "\"device\":{"
+      "\"identifiers\":[\"%s\"],"
+      "\"name\":\"%s\","
+      "\"model\":\"UNO R4 WiFi\","
+      "\"manufacturer\":\"Arduino\""
+    "}",
+    _haNodeId, _instanceName);
+}
+
+void MqttManager::availabilityBlock(char* buf, size_t len) const {
+  snprintf(buf, len,
+    "\"availability_topic\":\"%s/valve/" MQTT_TOPIC_STATUS "\","
+    "\"payload_available\":\"online\","
+    "\"payload_not_available\":\"offline\"",
+    _mqttRoot);
 }
 
 void MqttManager::onMqttMessage(char* topic, byte* payload, unsigned int length) {
