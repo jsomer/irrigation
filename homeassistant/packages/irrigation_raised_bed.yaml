@@ -134,25 +134,30 @@ template:
     sensor:
       - name: Irrigation Valve State
         unique_id: irrigation_raised_bed_valve_state
+        default_entity_id: sensor.irrigation_raised_bed_valve_state
         icon: mdi:valve
         state: "{{ trigger.payload_json.state | default('unknown') }}"
       - name: Irrigation Actual Pulse S
         unique_id: irrigation_raised_bed_actual_pulse_s
+        default_entity_id: sensor.irrigation_raised_bed_actual_pulse_s
         icon: mdi:timer-outline
         unit_of_measurement: s
         state: "{{ trigger.payload_json.actual_pulse_s | default(0) }}"
       - name: Irrigation Pulse Elapsed S
         unique_id: irrigation_raised_bed_pulse_elapsed_s
+        default_entity_id: sensor.irrigation_raised_bed_pulse_elapsed_s
         icon: mdi:timer-sand
         unit_of_measurement: s
         state: "{{ trigger.payload_json.pulse_elapsed_s | default(0) }}"
       - name: Irrigation Error Code
         unique_id: irrigation_raised_bed_error_code
+        default_entity_id: sensor.irrigation_raised_bed_error_code
         icon: mdi:alert-circle-outline
         state: "{{ trigger.payload_json.error_code | default('none') }}"
     binary_sensor:
       - name: Irrigation Valve Open
         unique_id: irrigation_raised_bed_valve
+        default_entity_id: binary_sensor.irrigation_raised_bed_valve
         device_class: opening
         state: "{{ trigger.payload_json.valve_open | default(false) | bool }}"
 
@@ -164,6 +169,7 @@ template:
     sensor:
       - name: Irrigation Telemetry Heartbeat
         unique_id: irrigation_raised_bed_telemetry_heartbeat
+        default_entity_id: sensor.irrigation_raised_bed_telemetry_heartbeat
         icon: mdi:heart-pulse
         state: "{{ now().isoformat() }}"
 
@@ -173,6 +179,7 @@ template:
     binary_sensor:
       - name: Irrigation Controller Online
         unique_id: irrigation_raised_bed_controller_online
+        default_entity_id: binary_sensor.irrigation_raised_bed_controller_online
         device_class: connectivity
         state: "{{ trigger.payload == 'online' }}"
 
@@ -191,6 +198,7 @@ template:
     sensor:
       - name: Irrigation Valve State Resolved
         unique_id: irrigation_raised_bed_valve_state_resolved
+        default_entity_id: sensor.irrigation_raised_bed_valve_state_resolved
         icon: mdi:valve
         state: |
           {% if not is_state('binary_sensor.irrigation_raised_bed_controller_online', 'on') %}
@@ -210,6 +218,7 @@ template:
 
       - name: Irrigation Actual Pulse Min
         unique_id: irrigation_raised_bed_actual_pulse_min
+        default_entity_id: sensor.irrigation_raised_bed_actual_pulse_min
         icon: mdi:timer-outline
         unit_of_measurement: min
         state: "{{ (states('sensor.irrigation_raised_bed_actual_pulse_s') | float(0) / 60) | round(1) }}"
@@ -255,6 +264,7 @@ template:
     sensor:
       - name: Irrigation Auto Block Reason
         unique_id: irrigation_raised_bed_auto_block_reason
+        default_entity_id: sensor.irrigation_raised_bed_auto_block_reason
         icon: mdi:information-outline
         state: |
           {% set ns = namespace(enabled=[], stale=false, at_max=false, all_ok=true, ok_parts=[]) %}
@@ -319,6 +329,7 @@ template:
       # valve_state_resolved / control_mode rather than recomputing sensor bands.
       - name: Irrigation Water Status
         unique_id: irrigation_raised_bed_water_status
+        default_entity_id: sensor.irrigation_raised_bed_water_status
         icon: mdi:water-pump
         state: |
           {% set mode = states('input_select.irrigation_raised_bed_control_mode') %}
@@ -414,14 +425,17 @@ template:
   - binary_sensor:
       - name: Irrigation Is Watering
         unique_id: irrigation_raised_bed_is_watering
+        default_entity_id: binary_sensor.irrigation_raised_bed_is_watering
         icon: mdi:water
         state: "{{ is_state('sensor.irrigation_raised_bed_valve_state_resolved', 'pulsing') }}"
       - name: Irrigation Is Settling
         unique_id: irrigation_raised_bed_is_settling
+        default_entity_id: binary_sensor.irrigation_raised_bed_is_settling
         icon: mdi:timer-sand
         state: "{{ is_state('sensor.irrigation_raised_bed_valve_state_resolved', 'settling') }}"
       - name: Irrigation Has Error
         unique_id: irrigation_raised_bed_has_error
+        default_entity_id: binary_sensor.irrigation_raised_bed_has_error
         icon: mdi:alert-circle
         state: "{{ is_state('sensor.irrigation_raised_bed_valve_state_resolved', 'fault') }}"
 

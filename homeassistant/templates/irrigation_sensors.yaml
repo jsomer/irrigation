@@ -341,17 +341,20 @@ template:
     sensor:
       - name: Irrigation Sensor 0 VWC Raw
         unique_id: irrigation_sensor_0_vwc_raw
+        default_entity_id: sensor.irrigation_sensor_0_vwc_raw
         unit_of_measurement: "%"
         icon: mdi:water-opacity
         state: "{{ trigger.payload_json.vwc | default(0) | float(0) if trigger.platform == 'mqtt' else states('sensor.irrigation_sensor_0_vwc_raw') | float(0) }}"
       - name: Irrigation Sensor 0 Voltage
         unique_id: irrigation_sensor_0_voltage
+        default_entity_id: sensor.irrigation_sensor_0_voltage
         unit_of_measurement: V
         device_class: voltage
         icon: mdi:flash
         state: "{{ trigger.payload_json.voltage | default(0) | float(0) if trigger.platform == 'mqtt' else states('sensor.irrigation_sensor_0_voltage') | float(0) }}"
       - name: Irrigation Sensor 0 VWC
         unique_id: irrigation_sensor_0_vwc
+        default_entity_id: sensor.irrigation_sensor_0_vwc
         unit_of_measurement: "%"
         icon: mdi:water-percent
         state: |
@@ -366,6 +369,7 @@ template:
           {{ [0, [100, v] | min] | max | round(1) }}
       - name: Irrigation Sensor 0 Seen
         unique_id: irrigation_sensor_0_seen
+        default_entity_id: sensor.irrigation_sensor_0_seen
         icon: mdi:clock-check-outline
         state: "{{ now().isoformat() if trigger.platform == 'mqtt' else states('sensor.irrigation_sensor_0_seen') }}"
 
@@ -379,17 +383,20 @@ template:
     sensor:
       - name: Irrigation Sensor 1 VWC Raw
         unique_id: irrigation_sensor_1_vwc_raw
+        default_entity_id: sensor.irrigation_sensor_1_vwc_raw
         unit_of_measurement: "%"
         icon: mdi:water-opacity
         state: "{{ trigger.payload_json.vwc | default(0) | float(0) if trigger.platform == 'mqtt' else states('sensor.irrigation_sensor_1_vwc_raw') | float(0) }}"
       - name: Irrigation Sensor 1 Voltage
         unique_id: irrigation_sensor_1_voltage
+        default_entity_id: sensor.irrigation_sensor_1_voltage
         unit_of_measurement: V
         device_class: voltage
         icon: mdi:flash
         state: "{{ trigger.payload_json.voltage | default(0) | float(0) if trigger.platform == 'mqtt' else states('sensor.irrigation_sensor_1_voltage') | float(0) }}"
       - name: Irrigation Sensor 1 VWC
         unique_id: irrigation_sensor_1_vwc
+        default_entity_id: sensor.irrigation_sensor_1_vwc
         unit_of_measurement: "%"
         icon: mdi:water-percent
         state: |
@@ -404,6 +411,7 @@ template:
           {{ [0, [100, v] | min] | max | round(1) }}
       - name: Irrigation Sensor 1 Seen
         unique_id: irrigation_sensor_1_seen
+        default_entity_id: sensor.irrigation_sensor_1_seen
         icon: mdi:clock-check-outline
         state: "{{ now().isoformat() if trigger.platform == 'mqtt' else states('sensor.irrigation_sensor_1_seen') }}"
 
@@ -417,17 +425,20 @@ template:
     sensor:
       - name: Irrigation Sensor 2 VWC Raw
         unique_id: irrigation_sensor_2_vwc_raw
+        default_entity_id: sensor.irrigation_sensor_2_vwc_raw
         unit_of_measurement: "%"
         icon: mdi:water-opacity
         state: "{{ trigger.payload_json.vwc | default(0) | float(0) if trigger.platform == 'mqtt' else states('sensor.irrigation_sensor_2_vwc_raw') | float(0) }}"
       - name: Irrigation Sensor 2 Voltage
         unique_id: irrigation_sensor_2_voltage
+        default_entity_id: sensor.irrigation_sensor_2_voltage
         unit_of_measurement: V
         device_class: voltage
         icon: mdi:flash
         state: "{{ trigger.payload_json.voltage | default(0) | float(0) if trigger.platform == 'mqtt' else states('sensor.irrigation_sensor_2_voltage') | float(0) }}"
       - name: Irrigation Sensor 2 VWC
         unique_id: irrigation_sensor_2_vwc
+        default_entity_id: sensor.irrigation_sensor_2_vwc
         unit_of_measurement: "%"
         icon: mdi:water-percent
         state: |
@@ -442,6 +453,7 @@ template:
           {{ [0, [100, v] | min] | max | round(1) }}
       - name: Irrigation Sensor 2 Seen
         unique_id: irrigation_sensor_2_seen
+        default_entity_id: sensor.irrigation_sensor_2_seen
         icon: mdi:clock-check-outline
         state: "{{ now().isoformat() if trigger.platform == 'mqtt' else states('sensor.irrigation_sensor_2_seen') }}"
 
@@ -455,17 +467,20 @@ template:
     sensor:
       - name: Irrigation Sensor 3 VWC Raw
         unique_id: irrigation_sensor_3_vwc_raw
+        default_entity_id: sensor.irrigation_sensor_3_vwc_raw
         unit_of_measurement: "%"
         icon: mdi:water-opacity
         state: "{{ trigger.payload_json.vwc | default(0) | float(0) if trigger.platform == 'mqtt' else states('sensor.irrigation_sensor_3_vwc_raw') | float(0) }}"
       - name: Irrigation Sensor 3 Voltage
         unique_id: irrigation_sensor_3_voltage
+        default_entity_id: sensor.irrigation_sensor_3_voltage
         unit_of_measurement: V
         device_class: voltage
         icon: mdi:flash
         state: "{{ trigger.payload_json.voltage | default(0) | float(0) if trigger.platform == 'mqtt' else states('sensor.irrigation_sensor_3_voltage') | float(0) }}"
       - name: Irrigation Sensor 3 VWC
         unique_id: irrigation_sensor_3_vwc
+        default_entity_id: sensor.irrigation_sensor_3_vwc
         unit_of_measurement: "%"
         icon: mdi:water-percent
         state: |
@@ -480,6 +495,7 @@ template:
           {{ [0, [100, v] | min] | max | round(1) }}
       - name: Irrigation Sensor 3 Seen
         unique_id: irrigation_sensor_3_seen
+        default_entity_id: sensor.irrigation_sensor_3_seen
         icon: mdi:clock-check-outline
         state: "{{ now().isoformat() if trigger.platform == 'mqtt' else states('sensor.irrigation_sensor_3_seen') }}"
 
@@ -493,17 +509,20 @@ template:
     sensor:
       - name: Irrigation Sensor 4 VWC Raw
         unique_id: irrigation_sensor_4_vwc_raw
+        default_entity_id: sensor.irrigation_sensor_4_vwc_raw
         unit_of_measurement: "%"
         icon: mdi:water-opacity
         state: "{{ trigger.payload_json.vwc | default(0) | float(0) if trigger.platform == 'mqtt' else states('sensor.irrigation_sensor_4_vwc_raw') | float(0) }}"
       - name: Irrigation Sensor 4 Voltage
         unique_id: irrigation_sensor_4_voltage
+        default_entity_id: sensor.irrigation_sensor_4_voltage
         unit_of_measurement: V
         device_class: voltage
         icon: mdi:flash
         state: "{{ trigger.payload_json.voltage | default(0) | float(0) if trigger.platform == 'mqtt' else states('sensor.irrigation_sensor_4_voltage') | float(0) }}"
       - name: Irrigation Sensor 4 VWC
         unique_id: irrigation_sensor_4_vwc
+        default_entity_id: sensor.irrigation_sensor_4_vwc
         unit_of_measurement: "%"
         icon: mdi:water-percent
         state: |
@@ -518,6 +537,7 @@ template:
           {{ [0, [100, v] | min] | max | round(1) }}
       - name: Irrigation Sensor 4 Seen
         unique_id: irrigation_sensor_4_seen
+        default_entity_id: sensor.irrigation_sensor_4_seen
         icon: mdi:clock-check-outline
         state: "{{ now().isoformat() if trigger.platform == 'mqtt' else states('sensor.irrigation_sensor_4_seen') }}"
 
@@ -531,17 +551,20 @@ template:
     sensor:
       - name: Irrigation Sensor 5 VWC Raw
         unique_id: irrigation_sensor_5_vwc_raw
+        default_entity_id: sensor.irrigation_sensor_5_vwc_raw
         unit_of_measurement: "%"
         icon: mdi:water-opacity
         state: "{{ trigger.payload_json.vwc | default(0) | float(0) if trigger.platform == 'mqtt' else states('sensor.irrigation_sensor_5_vwc_raw') | float(0) }}"
       - name: Irrigation Sensor 5 Voltage
         unique_id: irrigation_sensor_5_voltage
+        default_entity_id: sensor.irrigation_sensor_5_voltage
         unit_of_measurement: V
         device_class: voltage
         icon: mdi:flash
         state: "{{ trigger.payload_json.voltage | default(0) | float(0) if trigger.platform == 'mqtt' else states('sensor.irrigation_sensor_5_voltage') | float(0) }}"
       - name: Irrigation Sensor 5 VWC
         unique_id: irrigation_sensor_5_vwc
+        default_entity_id: sensor.irrigation_sensor_5_vwc
         unit_of_measurement: "%"
         icon: mdi:water-percent
         state: |
@@ -556,6 +579,7 @@ template:
           {{ [0, [100, v] | min] | max | round(1) }}
       - name: Irrigation Sensor 5 Seen
         unique_id: irrigation_sensor_5_seen
+        default_entity_id: sensor.irrigation_sensor_5_seen
         icon: mdi:clock-check-outline
         state: "{{ now().isoformat() if trigger.platform == 'mqtt' else states('sensor.irrigation_sensor_5_seen') }}"
 
@@ -575,36 +599,42 @@ template:
     binary_sensor:
       - name: Irrigation Sensor 0 Fresh
         unique_id: irrigation_sensor_0_fresh
+        default_entity_id: binary_sensor.irrigation_sensor_0_fresh
         state: >
           {{ states('sensor.irrigation_sensor_0_seen') not in ['unknown', 'unavailable', 'none', '']
              and states.sensor.irrigation_sensor_0_seen is not none
              and (now() - states.sensor.irrigation_sensor_0_seen.last_changed).total_seconds() < 90 }}
       - name: Irrigation Sensor 1 Fresh
         unique_id: irrigation_sensor_1_fresh
+        default_entity_id: binary_sensor.irrigation_sensor_1_fresh
         state: >
           {{ states('sensor.irrigation_sensor_1_seen') not in ['unknown', 'unavailable', 'none', '']
              and states.sensor.irrigation_sensor_1_seen is not none
              and (now() - states.sensor.irrigation_sensor_1_seen.last_changed).total_seconds() < 90 }}
       - name: Irrigation Sensor 2 Fresh
         unique_id: irrigation_sensor_2_fresh
+        default_entity_id: binary_sensor.irrigation_sensor_2_fresh
         state: >
           {{ states('sensor.irrigation_sensor_2_seen') not in ['unknown', 'unavailable', 'none', '']
              and states.sensor.irrigation_sensor_2_seen is not none
              and (now() - states.sensor.irrigation_sensor_2_seen.last_changed).total_seconds() < 90 }}
       - name: Irrigation Sensor 3 Fresh
         unique_id: irrigation_sensor_3_fresh
+        default_entity_id: binary_sensor.irrigation_sensor_3_fresh
         state: >
           {{ states('sensor.irrigation_sensor_3_seen') not in ['unknown', 'unavailable', 'none', '']
              and states.sensor.irrigation_sensor_3_seen is not none
              and (now() - states.sensor.irrigation_sensor_3_seen.last_changed).total_seconds() < 90 }}
       - name: Irrigation Sensor 4 Fresh
         unique_id: irrigation_sensor_4_fresh
+        default_entity_id: binary_sensor.irrigation_sensor_4_fresh
         state: >
           {{ states('sensor.irrigation_sensor_4_seen') not in ['unknown', 'unavailable', 'none', '']
              and states.sensor.irrigation_sensor_4_seen is not none
              and (now() - states.sensor.irrigation_sensor_4_seen.last_changed).total_seconds() < 90 }}
       - name: Irrigation Sensor 5 Fresh
         unique_id: irrigation_sensor_5_fresh
+        default_entity_id: binary_sensor.irrigation_sensor_5_fresh
         state: >
           {{ states('sensor.irrigation_sensor_5_seen') not in ['unknown', 'unavailable', 'none', '']
              and states.sensor.irrigation_sensor_5_seen is not none
