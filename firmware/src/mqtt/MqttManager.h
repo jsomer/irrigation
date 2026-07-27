@@ -89,8 +89,11 @@ private:
   // Topic builders
   void sensorTopic(char* buf, size_t len, uint8_t sensorId, const char* suffix) const;
   void valveTopic (char* buf, size_t len, const char* suffix) const;
+  // unique_id / object_id / default_entity_id stem: irrigation_<instance>_<local>
   void entityId(char* buf, size_t len, const char* localId) const;
-  void entityName(char* buf, size_t len, const char* localName) const;
+  // Discovery identity JSON fields (name is local-only; device carries instance name)
+  void entityIdentityBlock(char* buf, size_t len, const char* domain,
+                           const char* localId, const char* localName) const;
   void deviceBlock(char* buf, size_t len) const;
   void availabilityBlock(char* buf, size_t len) const;
 

@@ -144,8 +144,16 @@ Each discovery payload uses:
 | `unique_id` | `irrigation_<instance_id>_<local_entity_id>` |
 | `availability_topic` | `<root>/valve/status` |
 
-The display name is `<instance_name> <entity name>`. For example, instance
-`raised_bed` named `Raised Bed` publishes:
+The display name shown in HA is `device.name` + local entity name (e.g. device
+`Raised Bed` + entity `Sensor 0 VWC`). Discovery sets:
+
+| Field | Value |
+|-------|--------|
+| `unique_id` / `object_id` | `irrigation_<instance_id>_<local_entity_id>` |
+| `default_entity_id` | `<domain>.irrigation_<instance_id>_<local_entity_id>` |
+| `name` | local label only (no instance prefix — avoids doubled entity IDs) |
+
+Example for instance `raised_bed` named `Raised Bed`:
 
 ```text
 MQTT client:       irrigation-raised_bed
@@ -153,7 +161,8 @@ Runtime root:      irrigation/raised_bed
 HA device ID:      irrigation_raised_bed
 Discovery topic:   homeassistant/sensor/irrigation_raised_bed/sensor_0_vwc/config
 Entity unique ID:  irrigation_raised_bed_sensor_0_vwc
-Display name:      Raised Bed Sensor 0 VWC
+default_entity_id: sensor.irrigation_raised_bed_sensor_0_vwc
+Display:           Raised Bed → Sensor 0 VWC
 ```
 
 ---

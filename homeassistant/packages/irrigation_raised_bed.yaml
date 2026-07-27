@@ -430,15 +430,10 @@ script:
     alias: Irrigation Sync Firmware
     mode: restart
     sequence:
-      - condition: template
-        value_template: >-
-          {{ states('input_number.irrigation_raised_bed_settle_min') not in ['unknown', 'unavailable', 'none', ''] and
-             states('input_number.irrigation_raised_bed_max_pulse_min') not in ['unknown', 'unavailable', 'none', ''] and
-             states('input_number.irrigation_raised_bed_failsafe_disconnect_min') not in ['unknown', 'unavailable', 'none', ''] }}
       - service: mqtt.publish
         data:
           topic: irrigation/raised_bed/valve/command
-          payload: '{"action":"configure","settle_duration_s":{{ states(''input_number.irrigation_raised_bed_settle_min'') | int * 60 }},"max_pulse_duration_s":{{ states(''input_number.irrigation_raised_bed_max_pulse_min'') | int * 60 }},"failsafe_disconnect_s":{{ states(''input_number.irrigation_raised_bed_failsafe_disconnect_min'') | int * 60 }}}'
+          payload: '{"action":"configure","settle_duration_s":{{ states(''input_number.irrigation_raised_bed_settle_min'') | int(20) * 60 }},"max_pulse_duration_s":{{ states(''input_number.irrigation_raised_bed_max_pulse_min'') | int(60) * 60 }},"failsafe_disconnect_s":{{ states(''input_number.irrigation_raised_bed_failsafe_disconnect_min'') | int(30) * 60 }}}'
 
   irrigation_raised_bed_request_pulse:
     alias: Irrigation Request Pulse

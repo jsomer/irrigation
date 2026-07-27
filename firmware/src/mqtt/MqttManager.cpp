@@ -57,7 +57,7 @@ void MqttManager::begin() {
   _lastConnectedMs = millis();
   _mqtt.setServer(_broker, _port);
   _mqtt.setCallback(MqttManager::onMqttMessage);
-  _mqtt.setBufferSize(1024);  // discovery payload + instance-scoped identifiers
+  _mqtt.setBufferSize(1536);  // discovery payloads include default_entity_id
   _mqtt.setKeepAlive(30);
 }
 
@@ -123,20 +123,17 @@ void MqttManager::publishDiscovery() {
 }
 
 void MqttManager::discoverSensorVwc(uint8_t sensorId) {
-  char localId[32], localName[32], id[80], name[96], avail[192], device[256];
+  char localId[32], localName[32], identity[256], avail[192], device[256];
   snprintf(localId, sizeof(localId), "sensor_%d_vwc", sensorId);
   snprintf(localName, sizeof(localName), "Sensor %d VWC", sensorId);
-  entityId(id, sizeof(id), localId);
-  entityName(name, sizeof(name), localName);
+  entityIdentityBlock(identity, sizeof(identity), "sensor", localId, localName);
   availabilityBlock(avail, sizeof(avail));
   deviceBlock(device, sizeof(device));
 
-  char payload[768];
+  char payload[896];
   snprintf(payload, sizeof(payload),
     "{"
-      "\"name\":\"%s\","
-      "\"object_id\":\"%s\","
-      "\"unique_id\":\"%s\","
+      "%s,"
       "\"state_topic\":\"%s/sensor/%d/" MQTT_TOPIC_TELEMETRY "\","
       "\"value_template\":\"{{ value_json.vwc }}\","
       "\"unit_of_measurement\":\"%%\","
@@ -145,47 +142,42 @@ void MqttManager::discoverSensorVwc(uint8_t sensorId) {
       "%s,"
       "%s"
     "}",
-    name, id, id, _mqttRoot, sensorId, avail, device);
+    identity, _mqttRoot, sensorId, avail, device);
 
   publishDiscoveryMsg("sensor", localId, payload);
 }
 
 void MqttManager::discoverControllerOnline() {
-  char id[80], name[96], device[256];
-  entityId(id, sizeof(id), "controller_online");
-  entityName(name, sizeof(name), "Controller Online");
+  char identity[256], device[256];
+  entityIdentityBlock(identity, sizeof(identity), "binary_sensor",
+                      "controller_online", "Controller Online");
   deviceBlock(device, sizeof(device));
 
-  char payload[640];
+  char payload[768];
   snprintf(payload, sizeof(payload),
     "{"
-      "\"name\":\"%s\","
-      "\"object_id\":\"%s\","
-      "\"unique_id\":\"%s\","
+      "%s,"
       "\"state_topic\":\"%s/valve/" MQTT_TOPIC_STATUS "\","
       "\"payload_on\":\"online\","
       "\"payload_off\":\"offline\","
       "\"device_class\":\"connectivity\","
       "%s"
     "}",
-    name, id, id, _mqttRoot, device);
+    identity, _mqttRoot, device);
 
   publishDiscoveryMsg("binary_sensor", "controller_online", payload);
 }
 
 void MqttManager::discoverValveOpen() {
-  char id[80], name[96], avail[192], device[256];
-  entityId(id, sizeof(id), "valve");
-  entityName(name, sizeof(name), "Valve");
+  char identity[256], avail[192], device[256];
+  entityIdentityBlock(identity, sizeof(identity), "binary_sensor", "valve", "Valve");
   availabilityBlock(avail, sizeof(avail));
   deviceBlock(device, sizeof(device));
 
-  char payload[768];
+  char payload[896];
   snprintf(payload, sizeof(payload),
     "{"
-      "\"name\":\"%s\","
-      "\"object_id\":\"%s\","
-      "\"unique_id\":\"%s\","
+      "%s,"
       "\"state_topic\":\"%s/valve/" MQTT_TOPIC_TELEMETRY "\","
       "\"value_template\":\"{{ value_json.valve_open }}\","
       "\"payload_on\":\"true\","
@@ -194,31 +186,29 @@ void MqttManager::discoverValveOpen() {
       "%s,"
       "%s"
     "}",
-    name, id, id, _mqttRoot, avail, device);
+    identity, _mqttRoot, avail, device);
 
   publishDiscoveryMsg("binary_sensor", "valve", payload);
 }
 
 void MqttManager::discoverValveState() {
-  char id[80], name[96], avail[192], device[256];
-  entityId(id, sizeof(id), "valve_state");
-  entityName(name, sizeof(name), "Valve State");
+  char identity[256], avail[192], device[256];
+  entityIdentityBlock(identity, sizeof(identity), "sensor",
+                      "valve_state", "Valve State");
   availabilityBlock(avail, sizeof(avail));
   deviceBlock(device, sizeof(device));
 
-  char payload[768];
+  char payload[896];
   snprintf(payload, sizeof(payload),
     "{"
-      "\"name\":\"%s\","
-      "\"object_id\":\"%s\","
-      "\"unique_id\":\"%s\","
+      "%s,"
       "\"state_topic\":\"%s/valve/" MQTT_TOPIC_TELEMETRY "\","
       "\"value_template\":\"{{ value_json.state }}\","
       "\"icon\":\"mdi:valve\","
       "%s,"
       "%s"
     "}",
-    name, id, id, _mqttRoot, avail, device);
+    identity, _mqttRoot, avail, device);
 
   publishDiscoveryMsg("sensor", "valve_state", payload);
 }
@@ -226,9 +216,8 @@ void MqttManager::discoverValveState() {
 void MqttManager::discoverValveCounter(const char* name, const char* objectId,
                                        const char* field, const char* stateClass,
                                        const char* unit, const char* icon) {
-  char id[80], displayName[96], avail[192], device[256];
-  entityId(id, sizeof(id), objectId);
-  entityName(displayName, sizeof(displayName), name);
+  char identity[256], avail[192], device[256];
+  entityIdentityBlock(identity, sizeof(identity), "sensor", objectId, name);
   availabilityBlock(avail, sizeof(avail));
   deviceBlock(device, sizeof(device));
 
@@ -237,12 +226,10 @@ void MqttManager::discoverValveCounter(const char* name, const char* objectId,
     snprintf(unitField, sizeof(unitField), "\"unit_of_measurement\":\"%s\",", unit);
   }
 
-  char payload[768];
+  char payload[896];
   snprintf(payload, sizeof(payload),
     "{"
-      "\"name\":\"%s\","
-      "\"object_id\":\"%s\","
-      "\"unique_id\":\"%s\","
+      "%s,"
       "\"state_topic\":\"%s/valve/" MQTT_TOPIC_TELEMETRY "\","
       "\"value_template\":\"{{ value_json.%s }}\","
       "%s"
@@ -251,7 +238,7 @@ void MqttManager::discoverValveCounter(const char* name, const char* objectId,
       "%s,"
       "%s"
     "}",
-    displayName, id, id, _mqttRoot, field,
+    identity, _mqttRoot, field,
     unitField, stateClass, icon,
     avail, device);
 
@@ -260,102 +247,93 @@ void MqttManager::discoverValveCounter(const char* name, const char* objectId,
 
 
 void MqttManager::discoverValveFaultReason() {
-  char id[80], name[96], avail[192], device[256];
-  entityId(id, sizeof(id), "fault_reason");
-  entityName(name, sizeof(name), "Fault Reason");
+  char identity[256], avail[192], device[256];
+  entityIdentityBlock(identity, sizeof(identity), "sensor",
+                      "fault_reason", "Fault Reason");
   availabilityBlock(avail, sizeof(avail));
   deviceBlock(device, sizeof(device));
-  char payload[768];
+  char payload[896];
   snprintf(payload, sizeof(payload),
     "{"
-      "\"name\":\"%s\","
-      "\"object_id\":\"%s\","
-      "\"unique_id\":\"%s\","
+      "%s,"
       "\"state_topic\":\"%s/valve/" MQTT_TOPIC_TELEMETRY "\","
       "\"value_template\":\"{{ value_json.fault_reason | default('') }}\","
       "\"icon\":\"mdi:alert-outline\","
       "%s,"
       "%s"
     "}",
-    name, id, id, _mqttRoot, avail, device);
+    identity, _mqttRoot, avail, device);
 
   publishDiscoveryMsg("sensor", "fault_reason", payload);
 }
 
 void MqttManager::discoverValveConfigured() {
-  char id[80], name[96], avail[192], device[256];
-  entityId(id, sizeof(id), "firmware_configured");
-  entityName(name, sizeof(name), "Firmware Configured");
+  char identity[256], avail[192], device[256];
+  entityIdentityBlock(identity, sizeof(identity), "binary_sensor",
+                      "firmware_configured", "Firmware Configured");
   availabilityBlock(avail, sizeof(avail));
   deviceBlock(device, sizeof(device));
-  char payload[768];
+  char payload[896];
   snprintf(payload, sizeof(payload),
     "{"
-      "\"name\":\"%s\","
-      "\"object_id\":\"%s\","
-      "\"unique_id\":\"%s\","
+      "%s,"
       "\"state_topic\":\"%s/valve/" MQTT_TOPIC_TELEMETRY "\","
       "\"value_template\":\"{{ value_json.configured }}\","
       "\"icon\":\"mdi:check-circle-outline\","
       "%s,"
       "%s"
     "}",
-    name, id, id, _mqttRoot, avail, device);
+    identity, _mqttRoot, avail, device);
 
   publishDiscoveryMsg("binary_sensor", "firmware_configured", payload);
 }
 
 void MqttManager::discoverValveConfigSource() {
-  char id[80], name[96], avail[192], device[256];
-  entityId(id, sizeof(id), "config_source");
-  entityName(name, sizeof(name), "Config Source");
+  char identity[256], avail[192], device[256];
+  entityIdentityBlock(identity, sizeof(identity), "sensor",
+                      "config_source", "Config Source");
   availabilityBlock(avail, sizeof(avail));
   deviceBlock(device, sizeof(device));
-  char payload[768];
+  char payload[896];
   snprintf(payload, sizeof(payload),
     "{"
-      "\"name\":\"%s\","
-      "\"object_id\":\"%s\","
-      "\"unique_id\":\"%s\","
+      "%s,"
       "\"state_topic\":\"%s/valve/" MQTT_TOPIC_TELEMETRY "\","
       "\"value_template\":\"{{ value_json.config_source }}\","
       "\"icon\":\"mdi:database-outline\","
       "%s,"
       "%s"
     "}",
-    name, id, id, _mqttRoot, avail, device);
+    identity, _mqttRoot, avail, device);
 
   publishDiscoveryMsg("sensor", "config_source", payload);
 }
 
 void MqttManager::discoverValveErrorCode() {
-  char id[80], name[96], avail[192], device[256];
-  entityId(id, sizeof(id), "error_code");
-  entityName(name, sizeof(name), "Error Code");
+  char identity[256], avail[192], device[256];
+  entityIdentityBlock(identity, sizeof(identity), "sensor",
+                      "error_code", "Error Code");
   availabilityBlock(avail, sizeof(avail));
   deviceBlock(device, sizeof(device));
-  char payload[768];
+  char payload[896];
   snprintf(payload, sizeof(payload),
     "{"
-      "\"name\":\"%s\","
-      "\"object_id\":\"%s\","
-      "\"unique_id\":\"%s\","
+      "%s,"
       "\"state_topic\":\"%s/valve/" MQTT_TOPIC_TELEMETRY "\","
       "\"value_template\":\"{{ value_json.error_code }}\","
       "\"icon\":\"mdi:alert-circle-outline\","
       "%s,"
       "%s"
     "}",
-    name, id, id, _mqttRoot, avail, device);
+    identity, _mqttRoot, avail, device);
 
   publishDiscoveryMsg("sensor", "error_code", payload);
 }
 
 void MqttManager::discoverButton(const char* name, const char* objectId,
                                  const char* action, const char* icon) {
-  char id[80], displayName[96], avail[192], device[256];
-  entityId(id, sizeof(id), objectId);
-  entityName(displayName, sizeof(displayName), name);
+  char identity[256], avail[192], device[256];
+  entityIdentityBlock(identity, sizeof(identity), "button", objectId, name);
   availabilityBlock(avail, sizeof(avail));
   deviceBlock(device, sizeof(device));
 
@@ -365,19 +343,17 @@ void MqttManager::discoverButton(const char* name, const char* objectId,
   snprintf(escapedPayload, sizeof(escapedPayload),
            "{\\\"action\\\":\\\"%s\\\"}", action);
 
-  char payload[768];
+  char payload[896];
   snprintf(payload, sizeof(payload),
     "{"
-      "\"name\":\"%s\","
-      "\"object_id\":\"%s\","
-      "\"unique_id\":\"%s\","
+      "%s,"
       "\"command_topic\":\"%s/valve/" MQTT_TOPIC_COMMAND "\","
       "\"payload_press\":\"%s\","
       "\"icon\":\"%s\","
       "%s,"
       "%s"
     "}",
-    displayName, id, id, _mqttRoot, escapedPayload, icon,
+    identity, _mqttRoot, escapedPayload, icon,
     avail, device);
 
   publishDiscoveryMsg("button", objectId, payload);
@@ -497,8 +473,22 @@ void MqttManager::entityId(char* buf, size_t len, const char* localId) const {
   snprintf(buf, len, "%s_%s", _haNodeId, localId);
 }
 
-void MqttManager::entityName(char* buf, size_t len, const char* localName) const {
-  snprintf(buf, len, "%s %s", _instanceName, localName);
+// Entity display names are local only (e.g. "Sensor 0 VWC"). Prefixing them with
+// IRRIGATION_INSTANCE_NAME caused HA to slugify "Raised Bed Sensor 0 VWC" and then
+// prepend the device slug again → raised_bed_raised_bed_…. Device.name already
+// carries the instance label. default_entity_id forces irrigation_<id>_* entity IDs
+// on modern HA (object_id alone is deprecated / often ignored).
+void MqttManager::entityIdentityBlock(char* buf, size_t len, const char* domain,
+                                      const char* localId,
+                                      const char* localName) const {
+  char id[80];
+  entityId(id, sizeof(id), localId);
+  snprintf(buf, len,
+    "\"name\":\"%s\","
+    "\"object_id\":\"%s\","
+    "\"default_entity_id\":\"%s.%s\","
+    "\"unique_id\":\"%s\"",
+    localName, id, domain, id, id);
 }
 
 void MqttManager::deviceBlock(char* buf, size_t len) const {

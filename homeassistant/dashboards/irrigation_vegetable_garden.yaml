@@ -790,9 +790,7 @@ views:
                 show_icon: true
                 tap_action:
                   action: perform-action
-                  perform_action: script.turn_on
-                  target:
-                    entity_id: script.irrigation_vegetable_garden_request_pulse
+                  perform_action: script.irrigation_vegetable_garden_request_pulse
               - type: button
                 name: Close
                 icon: mdi:stop-circle
@@ -800,9 +798,7 @@ views:
                 show_icon: true
                 tap_action:
                   action: perform-action
-                  perform_action: script.turn_on
-                  target:
-                    entity_id: script.irrigation_vegetable_garden_manual_close
+                  perform_action: script.irrigation_vegetable_garden_manual_close
               - type: button
                 name: Clear Fault
                 icon: mdi:alert-remove-outline
@@ -810,9 +806,7 @@ views:
                 show_icon: true
                 tap_action:
                   action: perform-action
-                  perform_action: script.turn_on
-                  target:
-                    entity_id: script.irrigation_vegetable_garden_clear_fault
+                  perform_action: script.irrigation_vegetable_garden_clear_fault
               - type: button
                 name: Sync
                 icon: mdi:sync
@@ -820,9 +814,7 @@ views:
                 show_icon: true
                 tap_action:
                   action: perform-action
-                  perform_action: script.turn_on
-                  target:
-                    entity_id: script.irrigation_vegetable_garden_sync_firmware
+                  perform_action: script.irrigation_vegetable_garden_sync_firmware
 
           - type: markdown
             content: |
